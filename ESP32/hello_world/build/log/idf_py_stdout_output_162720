@@ -1,0 +1,314 @@
+Command: /home/sergio/.espressif/tools/python/v6.0.2/venv/bin/python /home/sergio/.espressif/v6.0.2/esp-idf/tools/idf_monitor.py -p /dev/ttyACM0 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 /home/sergio/Escritorio/Proyectos/Machine_Learning/PyTorch/Proyecto_Tesis/Algae-JEPA/ESP32/prueba/hello_world/build/hello_world.elf /home/sergio/Escritorio/Proyectos/Machine_Learning/PyTorch/Proyecto_Tesis/Algae-JEPA/ESP32/prueba/hello_world/build/bootloader/bootloader.elf -m '/home/sergio/.espressif/tools/python/v6.0.2/venv/bin/python' '/home/sergio/.espressif/v6.0.2/esp-idf/tools/idf.py' '-p' '/dev/ttyACM0'
+[0;32mI (125) esp_image: segment 4: paddr=00036194 vaddr=40374980 sizeESP-ROM:esp32s3-20210327[0m
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x40378b7e
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x14f0
+load:0x403c8700,len:0xda0
+load:0x403cb700,len:0x2f54
+entry 0x403c8908
+[0;32mI (24) boot: ESP-IDF v6.0.2 2nd stage bootloader[0m
+[0;32mI (24) boot: compile time Aug  4 2026 19:57:14[0m
+[0;32mI (25) boot: Multicore bootloader[0m
+[0;32mI (26) boot: chip revision: v0.2[0m
+[0;32mI (27) boot: efuse block revision: v1.3[0m
+[0;32mI (31) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (35) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (39) boot.esp32s3: SPI Flash Size : 2MB[0m
+[0;32mI (42) boot: Enabling RNG early entropy source...[0m
+[0;32mI (47) boot: Partition Table:[0m
+[0;32mI (50) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (62) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (69) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (75) boot: End of partition table[0m
+[0;32mI (79) esp_image: segment 0: paddr=00010020 vaddr=3c020020 size=0c5dch ( 50652) map[0m
+[0;32mI (95) esp_image: segment 1: paddr=0001c604 vaddr=3fc90000 size=0308ch ( 12428) load[0m
+[0;32mI (99) esp_image: segment 2: paddr=0001f698 vaddr=40374000 size=00980h (  2432) load[0m
+[0;32mI (102) esp_image: segment 3: paddr=00020020 vaddr=42000020 size=1616ch ( 90476) map[0m
+[0;32mI (125) esp_image: segment 4: paddr=00036194 vaddr=40374980 size=0b650h ( 46672) load[0m
+[0;32mI (136) esp_image: segment 5: paddr=000417ec vaddr=50000000 size=00024h (    36) load[0m
+[0;32mI (143) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (143) boot: Disabling RNG early entropy source...[0m
+[0;32mI (154) cpu_start: Multicore app[0m
+[0;32mI (163) cpu_start: GPIO 44 and 43 are used as console UART I/O pins[0m
+[0;32mI (164) cpu_start: Pro cpu start user code[0m
+[0;32mI (164) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (165) app_init: Application information:[0m
+[0;32mI (169) app_init: Project name:     hello_world[0m
+[0;32mI (173) app_init: App version:      1[0m
+[0;32mI (176) app_init: Compile time:     Aug  4 2026 19:56:26[0m
+[0;32mI (181) app_init: ELF file SHA256:  d52c4ea57...[0m
+[0;32mI (186) app_init: ESP-IDF:          v6.0.2[0m
+[0;32mI (190) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (193) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (197) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (201) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (208) heap_init: At 3FC944D0 len 00055240 (340 KiB): RAM[0m
+[0;32mI (213) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (218) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (223) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (229) spi_flash: detected chip: gd[0m
+[0;32mI (232) spi_flash: flash io: dio[0m
+[0;33mW (235) spi_flash: Detected size(8192k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;32mI (247) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (253) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (260) main_task: Started on CPU0[0m
+[0;32mI (260) main_task: Calling app_main()[0m
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812
+x_value: 4.712389, y_value: -1.109837
+x_value: 5.026548, y_value: -0.982756
+x_value: 5.340708, y_value: -0.745539
+x_value: 5.654867, y_value: -0.533738
+x_value: 5.969026, y_value: -0.355825
+x_value: 0.000000, y_value: 0.000000
+x_value: 0.314159, y_value: 0.372770
+x_value: 0.628319, y_value: 0.559154
+x_value: 0.942478, y_value: 0.838731
+x_value: 1.256637, y_value: 0.965812
+x_value: 1.570796, y_value: 1.042060
+x_value: 1.884956, y_value: 0.957340
+x_value: 2.199115, y_value: 0.821787
+x_value: 2.513274, y_value: 0.533738
+x_value: 2.827433, y_value: 0.237217
+x_value: 3.141593, y_value: 0.008472
+x_value: 3.455752, y_value: -0.304993
+x_value: 3.769912, y_value: -0.533738
+x_value: 4.084070, y_value: -0.779427
+x_value: 4.398230, y_value: -0.965812

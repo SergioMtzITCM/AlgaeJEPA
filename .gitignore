@@ -1,0 +1,15 @@
+.ipy_checkpoints
+__pycache__
+Datasets/
+Logs/
+Main_Pretrain_lambda01/
+MicroViTS1_Student/
+MicroViTS2_Student/
+MicroViTS3_Student/
+MobileNetV2_Student
+Preprocessed_data/
+rknn_env/
+Test_data_preprocessed/
+tf_env/
+*.onnx
+*.ipynb

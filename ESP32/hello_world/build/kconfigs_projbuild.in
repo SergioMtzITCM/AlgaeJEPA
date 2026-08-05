@@ -1,0 +1,7 @@
+source "/home/sergio/.espressif/v6.0.2/esp-idf/components/app_update/Kconfig.projbuild"
+source "/home/sergio/.espressif/v6.0.2/esp-idf/components/bootloader/Kconfig.projbuild"
+source "/home/sergio/.espressif/v6.0.2/esp-idf/components/esp_app_format/Kconfig.projbuild"
+source "/home/sergio/.espressif/v6.0.2/esp-idf/components/esp_rom/Kconfig.projbuild"
+source "/home/sergio/.espressif/v6.0.2/esp-idf/components/esptool_py/Kconfig.projbuild"
+source "/home/sergio/.espressif/v6.0.2/esp-idf/components/partition_table/Kconfig.projbuild"
+source "/home/sergio/Escritorio/Proyectos/Machine_Learning/PyTorch/Proyecto_Tesis/Algae-JEPA/ESP32/prueba/hello_world/managed_components/espressif__esp-nn/Kconfig.projbuild"
