@@ -1,7 +1,0 @@
-{
-    "idf.currentSetup": "/home/sergio/.espressif/v6.0.2/esp-idf",
-    "idf.port": "/dev/ttyACM0",
-    "idf.openOcdConfigs": [
-        "board/esp32s3-builtin.cfg"
-    ]
-}
