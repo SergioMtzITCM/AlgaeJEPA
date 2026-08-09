@@ -24,6 +24,6 @@ extern "C" void app_main(void) {
     loop();
 
     // trigger one inference every 500ms
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 }

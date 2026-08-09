@@ -1,7 +1,7 @@
 {
     "version":            "1.3",
     "project_name":       "prueba_cnn",
-    "project_version":    "1",
+    "project_version":    "0607372-dirty",
     "project_path":       "/home/sergio/Escritorio/Proyectos/Machine_Learning/PyTorch/Proyecto_Tesis/Algae-JEPA/ESP32/Prueba_CNN",
     "idf_path":           "/home/sergio/.espressif/v6.0.2/esp-idf",
     "build_dir":          "/home/sergio/Escritorio/Proyectos/Machine_Learning/PyTorch/Proyecto_Tesis/Algae-JEPA/ESP32/Prueba_CNN/build",
@@ -1791,7 +1791,7 @@
             "type": "LIBRARY",
             "lib": "__idf_main",
             "reqs": [],
-            "priv_reqs": [ "spi_flash", "espressif__esp-tflite-micro" ],
+            "priv_reqs": [ "spi_flash", "esp_timer", "freertos", "espressif__esp-tflite-micro" ],
             "managed_reqs": [],
             "managed_priv_reqs": [ "espressif__esp-tflite-micro" ],
             "file": "/home/sergio/Escritorio/Proyectos/Machine_Learning/PyTorch/Proyecto_Tesis/Algae-JEPA/ESP32/Prueba_CNN/build/esp-idf/main/libmain.a",
@@ -3930,7 +3930,7 @@
             "source": "project_components",
             "lib": "__idf_main",
             "reqs": [],
-            "priv_reqs": [ "spi_flash", "espressif__esp-tflite-micro" ],
+            "priv_reqs": [ "spi_flash", "esp_timer", "freertos", "espressif__esp-tflite-micro" ],
             "managed_reqs": [],
             "managed_priv_reqs": [ "espressif__esp-tflite-micro" ],
             "include_dirs": []

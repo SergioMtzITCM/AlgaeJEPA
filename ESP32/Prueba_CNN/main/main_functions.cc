@@ -20,6 +20,7 @@ limitations under the License.
 #include "tensorflow/lite/schema/schema_generated.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 
 #include "esp_heap_caps.h"
@@ -29,6 +30,12 @@ limitations under the License.
 #include "constants.h"
 #include "output_handler.h"
 #include "test_data.h"
+
+// Latency & RAM Metrics
+#include "esp_timer.h"      // esp_timer_get_time() -> microsegundos desde el arranque
+#include "esp_system.h"     // esp_get_free_heap_size(), esp_get_minimum_free_heap_size()
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"  // uxTaskGetStackHighWaterMark()
 
 // Globals, used for compatibility with Arduino-style sketches.
 namespace {
@@ -45,6 +52,13 @@ uint8_t* tensor_arena = nullptr;
 bool inference_done = false;
 
 bool model_ready = false;
+
+// Latency variables
+int64_t latency_min_us = INT64_MAX;
+int64_t latency_max_us = 0;
+int64_t latency_sum_us = 0;
+uint32_t latency_sample_count = 0;
+
 }  // namespace
 
 
@@ -70,6 +84,12 @@ void setup() {
                 static_cast<int>(kTensorArenaSize));
     return;
   }
+
+
+  // Free RAM before interpreter build
+  MicroPrintf("[RAM] Free Internal Heap: %u bytes | Free Heap PSRAM: %u bytes",
+              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
 
   // Pull in only the operation implementations we need.
@@ -103,6 +123,10 @@ void setup() {
               static_cast<int>(kTensorArenaSize));
 
 
+  // Free RAM after AllocateTensors
+  MicroPrintf("[RAM] Free Internal Heap: %u bytes | Free Heap PSRAM: %u bytes",
+              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
   // Keep track of how many inferences we have performed.
   inference_count = 0;
@@ -131,16 +155,28 @@ void loop() {
       return;
   }
 
+  // Measure init
+  int64_t t_copy_start_us = esp_timer_get_time();
+
+  // Copy input data to model's input
   memcpy(input->data.int8, random_test_sample_quantized_bin, expected_bytes);
+
+  // Time mark before Invoke()
+  int64_t t_invoke_start_us = esp_timer_get_time();
 
   MicroPrintf("Starting Inference...");
 
   // Run inference, and report any error
   TfLiteStatus invoke_status = interpreter->Invoke();
+
+  // Time mark after Invoke()
+  int64_t t_invoke_end_us = esp_timer_get_time();
+
   if (invoke_status != kTfLiteOk) {
     MicroPrintf("Invoke failed");
     return;
   }
+
 
   // Tensor shape verification
   int num_dims = output->dims->size;
@@ -179,6 +215,35 @@ void loop() {
       MicroPrintf("  Channel [%d]: INT8 = %d -> Float = %f", 
                   c, quantized_val, static_cast<double>(latent_activation));
   }
+
+  // ==================== Latency Report ====================
+  int64_t copy_time_us   = t_invoke_start_us - t_copy_start_us;
+  int64_t invoke_time_us = t_invoke_end_us   - t_invoke_start_us;
+  int64_t total_time_us  = t_invoke_end_us   - t_copy_start_us;
+ 
+  latency_sample_count += 1;
+  latency_sum_us += invoke_time_us;
+  if (invoke_time_us < latency_min_us) latency_min_us = invoke_time_us;
+  if (invoke_time_us > latency_max_us) latency_max_us = invoke_time_us;
+  int64_t latency_avg_us = latency_sum_us / latency_sample_count;
+ 
+  MicroPrintf("[LATENCY] input copy: %lld us | invoke: %lld us | total: %lld us",
+              (long long)copy_time_us, (long long)invoke_time_us, (long long)total_time_us);
+  MicroPrintf("[LATENCY] invoke -> min: %lld us | max: %lld us | average: %lld us (samples: %u)",
+              (long long)latency_min_us, (long long)latency_max_us,
+              (long long)latency_avg_us, (unsigned)latency_sample_count);
+  // ============================================================================================
+  
+  // ==================== RAM Report ====================
+  UBaseType_t stack_high_water_mark = uxTaskGetStackHighWaterMark(NULL);
+  MicroPrintf("[RAM] Remaining Free Stack(high water mark): %u words (~%u bytes)",
+              (unsigned)stack_high_water_mark,
+              (unsigned)(stack_high_water_mark * sizeof(StackType_t)));
+  MicroPrintf("[RAM] Free Internal Heap Now: %u bytes | Free Historic Minimum: %u bytes",
+              (unsigned)esp_get_free_heap_size(),
+              (unsigned)esp_get_minimum_free_heap_size());
+  // ============================================================================================
+
 
   // Increment the inference_counter, and reset it if we have reached
   // the total number per cycle
