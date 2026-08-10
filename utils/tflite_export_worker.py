@@ -44,7 +44,7 @@ def pick_float32_reference(saved_model_path: Path) -> Path:
     float_files = [f for f in tflite_files if "int8" not in f.name and "quant" not in f.name]
     if not float_files:
         raise FileNotFoundError(
-            f".tflite file without quantization has not found in {saved_model_path}."
+            f".tflite file without quantization has not been found in {saved_model_path}."
         )
  
     float32_matches = sorted(f for f in float_files if "float32" in f.name)
@@ -98,7 +98,7 @@ def main() -> None:
  
     onnx_path = Path(args.onnx_path)
     if not onnx_path.exists():
-        raise FileNotFoundError(f"ONNX File {onnx_path} has not found.")
+        raise FileNotFoundError(f"ONNX File {onnx_path} has not been found.")
  
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -117,7 +117,7 @@ def main() -> None:
             tflite_backend = "tf_converter",
     )
     except Exception as e:
-        raise RuntimeError(f"Error en onnx2tf (Fase 1): {e}") from e
+        raise RuntimeError(f"Error in onnx2tf (Phase 1): {e}") from e
 
     float32_tflite_path = pick_float32_reference(saved_model_path)
     print(f"* Inspecting the generated TFLite model: {float32_tflite_path.name}...")
