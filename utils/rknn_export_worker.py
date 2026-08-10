@@ -60,7 +60,7 @@ def build_calibration_dataset(h5_path: Path,
     Reads the '.h5' representative dataset, chooses random 'num_samples' images,
     saves each one int '.npy' file and writes a 'dataset.txt' file.
     """
-    calib_dir = out_dir / "rknn_calib_images"
+    calib_dir = out_dir / "rknn_calib_images" 
     calib_dir.mkdir(parents = True, exist_ok = True)
  
     print(f"* Loading calibration data from: {h5_path}...")
@@ -82,8 +82,9 @@ def build_calibration_dataset(h5_path: Path,
     dataset_txt_path = out_dir / "dataset.txt"
     with open(dataset_txt_path, "w") as f:
         for i, img in enumerate(images):
-            npy_path = calib_dir / f"calib_{i:04d}.npy"
-            np.save(npy_path, img)
+            npy_path = (calib_dir / f"calib_{i:04d}.npy").resolve()
+            img_with_batch = np.expand_dims(img, axis = 0)
+            np.save(npy_path, img_with_batch)
             f.write(f"{npy_path}\n")
  
     print(f"* {count} calibration data images saved in '.npy' file in: {calib_dir}")
