@@ -49,7 +49,7 @@ def convert_to_onnx_and_rknn(model,
 
     print("*** Exporting ONNX model to RKNN...")
 
-    worker_script = Path(__file__).resolve().parent / "rknn_export_worker.py"
+    worker_script = Path(__file__).resolve().parent / "workers" / "rknn_export_worker.py"
     if not worker_script.exists():
         raise FileNotFoundError(
             f"Auxiliar script '{worker_script}' has not found. It must to be in the same directory."
@@ -106,7 +106,7 @@ def convert_onnx_to_tflite(onnx_file_path: str,
  
     print("*** Exporting ONNX model to TFLite...")
 
-    worker_script = Path(__file__).resolve().parent / "tflite_export_worker.py"
+    worker_script = Path(__file__).resolve().parent / "workers" / "tflite_export_worker.py"
     if not worker_script.exists():
         raise FileNotFoundError(
             f"Auxiliar script '{worker_script}' has not found. It must to be in the same directory."
