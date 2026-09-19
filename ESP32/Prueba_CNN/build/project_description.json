@@ -1,7 +1,7 @@
 {
     "version":            "1.3",
     "project_name":       "prueba_cnn",
-    "project_version":    "0607372-dirty",
+    "project_version":    "ae4dbc1-dirty",
     "project_path":       "/home/sergio/Escritorio/Proyectos/Machine_Learning/PyTorch/Proyecto_Tesis/Algae-JEPA/ESP32/Prueba_CNN",
     "idf_path":           "/home/sergio/.espressif/v6.0.2/esp-idf",
     "build_dir":          "/home/sergio/Escritorio/Proyectos/Machine_Learning/PyTorch/Proyecto_Tesis/Algae-JEPA/ESP32/Prueba_CNN/build",

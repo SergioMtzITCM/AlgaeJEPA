@@ -2,17 +2,19 @@ import torch
 from models.vit_core import ViTModel
 from models.microvit_core import MicroViTModel
 from models.mobilenet_core import MobileNetModel
+from models.resnet_core import ResNetModel
 
 from typing import Union
 
-def load_pretrain_encoder(checkpoint_path: str, device: torch.device) -> ViTModel:
+def load_pretrain_encoder(checkpoint_path: str, device: torch.device, num_classes: int = None) -> ViTModel:
 
     # Load the Checkpoint
     checkpoint = torch.load(checkpoint_path, map_location = "cpu", weights_only = False)
     full_state_dict = checkpoint["model_state_dict"]
     config = checkpoint["config"]
-    config.num_hidden_layers = 12
 
+    if num_classes is not None:
+        config.num_classes = num_classes
     
     # Filter state_dict to Obtain Only the Encoder Weights
     encoder_state_dict = {}
@@ -27,7 +29,7 @@ def load_pretrain_encoder(checkpoint_path: str, device: torch.device) -> ViTMode
     encoder = ViTModel(config)
 
     # Load the State Dict
-    msg = encoder.load_state_dict(encoder_state_dict, strict = True)
+    msg = encoder.load_state_dict(encoder_state_dict, strict = False)
     print(f"Encoder Load State: {msg}")
 
     return encoder.to(device)
@@ -36,12 +38,16 @@ def load_pretrain_encoder(checkpoint_path: str, device: torch.device) -> ViTMode
 def load_student_model(
                        checkpoint_path: str,
                        model_type: str, 
-                       device: torch.device) -> Union[ViTModel, MicroViTModel, MobileNetModel]:
+                       device: torch.device,
+                       num_classes: int = None) -> Union[ViTModel, MicroViTModel, MobileNetModel, ResNetModel]:
 
     # Load the Checkpoint
     checkpoint = torch.load(checkpoint_path, map_location = "cpu", weights_only = False)
     full_state_dict = checkpoint["student_state_dict"]
     config = checkpoint["config"]
+
+    if num_classes is not None:
+        config.num_classes = num_classes
 
     # Clean the state_dict to remove the torch.compile prefix '_orig_mod.'
     clean_state_dict = {}
@@ -62,7 +68,7 @@ def load_student_model(
             f"Allowed values: 'ViT', 'MicroViT', 'MobileNet'.")
 
     # Load the State Dict
-    msg = student.load_state_dict(clean_state_dict, strict = True)
+    msg = student.load_state_dict(clean_state_dict, strict = False)
     print(f"Student Load State: {msg}")
 
     return student.to(device)

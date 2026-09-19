@@ -249,6 +249,12 @@ class ViTModel(nn.Module):
 
         self.norm = nn.LayerNorm(config.hidden_size, eps = config.layer_norm_eps)
 
+        # ---- Classifier ----
+        self.num_classes = config.num_classes
+        if self.num_classes is not None:
+            self.classifier = nn.Linear(config.hidden_size, self.num_classes)
+        # --------------------
+
         self._init_weights()
 
     def _init_weights(self) -> None:
@@ -299,6 +305,16 @@ class ViTModel(nn.Module):
 
         # Final Norm
         x = self.norm(x)
+
+        # ---- Classification ----
+        if self.num_classes is not None:
+            x = x.mean(dim = 1) 
+            x = self.classifier(x)
+            
+            if output_attentions:
+                return x, all_attentions
+            return x
+        # ------------------------
 
         if output_attentions:
             return x, all_attentions

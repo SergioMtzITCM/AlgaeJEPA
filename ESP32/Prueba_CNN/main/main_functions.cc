@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 
+#include "tensorflow/lite/micro/micro_log.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/system_setup.h"
@@ -21,14 +22,15 @@ limitations under the License.
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <stdio.h>
 
 #include "esp_heap_caps.h"
 
 #include "main_functions.h"
 #include "model.h"
 #include "constants.h"
-#include "output_handler.h"
 #include "test_data.h"
 
 // Latency & RAM Metrics
@@ -80,7 +82,7 @@ void setup() {
   tensor_arena = static_cast<uint8_t*>(
       heap_caps_malloc(kTensorArenaSize, MALLOC_CAP_SPIRAM));
   if (tensor_arena == nullptr) {
-    MicroPrintf("No se pudo reservar %d bytes en PSRAM para el tensor arena.",
+    printf("No se pudo reservar %d bytes en PSRAM para el tensor arena.",
                 static_cast<int>(kTensorArenaSize));
     return;
   }
@@ -110,7 +112,7 @@ void setup() {
   // Allocate memory from the tensor_arena for the model's tensors.
   TfLiteStatus allocate_status = interpreter->AllocateTensors();
   if (allocate_status != kTfLiteOk) {
-    MicroPrintf("AllocateTensors() failed");
+    printf("AllocateTensors() failed");
     return;
   }
 
@@ -118,7 +120,7 @@ void setup() {
   input = interpreter->input(0);
   output = interpreter->output(0);
 
-  MicroPrintf("Arena realmente usado: %d de %d bytes reservados",
+  printf("Arena realmente usado: %d de %d bytes reservados\n",
               static_cast<int>(interpreter->arena_used_bytes()),
               static_cast<int>(kTensorArenaSize));
 
@@ -142,7 +144,7 @@ void loop() {
     // setup() no terminó con éxito: interpreter/input/output siguen en
     // nullptr. Salir aquí evita el LoadProhibited por desreferenciar un
     // puntero nulo.
-    MicroPrintf("Modelo no inicializado, loop() abortado.");
+    printf("Modelo no inicializado, loop() abortado.");
     return;
   }
   
@@ -150,7 +152,7 @@ void loop() {
 
   // Security validation
   if(random_test_sample_quantized_bin_len != expected_bytes){
-    MicroPrintf("Error: model's expected bytes: %d, test data has: %d.",
+    printf("Error: model's expected bytes: %d, test data has: %d.",
                 expected_bytes, random_test_sample_quantized_bin_len);
       return;
   }
@@ -173,7 +175,7 @@ void loop() {
   int64_t t_invoke_end_us = esp_timer_get_time();
 
   if (invoke_status != kTfLiteOk) {
-    MicroPrintf("Invoke failed");
+    printf("Invoke failed");
     return;
   }
 

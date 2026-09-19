@@ -7,21 +7,40 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import matplotlib
+import seaborn as sns
 matplotlib.use("Agg")
-from typing import Optional
+from typing import Optional, Union
+from sklearn.metrics import accuracy_score, f1_score
 
-from torch.cuda.amp import autocast, GradScaler
-
-from losses.loss import IJEPA_Loss
-
+from models.algae_jepa import AlgaeJepa
 from models.vit_core import ViTModel
 from models.microvit_core import MicroViTModel
+from models.mobilenet_core import MobileNetModel
+from models.resnet_core import ResNetModel
+
+from losses.embedding import EmbeddingLoss
 
 import math
 
-class SIGReg_IJEPA_Trainer:
+sns.set_theme(
+    context = "paper", 
+    style = "ticks", 
+    palette = "deep", 
+    font = "sans-serif", 
+    font_scale = 1.2,
+    rc={
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "grid.alpha": 0.2,
+        "grid.linestyle": "--",
+        "figure.dpi": 300
+    }
+)
+
+class AlgaeJEPA_Trainer:
     def __init__(self,
-                 model: nn.Module,
+                 model: AlgaeJepa,
                  train_dataloader: DataLoader,
                  test_dataloader: DataLoader,
                  optimizer: optim.Optimizer,
@@ -41,16 +60,15 @@ class SIGReg_IJEPA_Trainer:
         self.animation_duration = 0.3        # <-- NUEVO
 
         # AMP
-        self.scaler = GradScaler()
+        self.scaler = torch.amp.GradScaler(device = device)
 
         # Metrics Traking
         self.history = {
             "total_loss": [],
-            "rec_loss": [],
+            "embed_loss": [],
             "sigreg_loss": []
         }
 
-        self.global_step = 0
         self.best_loss = float("inf")
 
         # Directories
@@ -71,7 +89,7 @@ class SIGReg_IJEPA_Trainer:
         for epoch in range(1, self.epochs + 1):
             self.model.train()
             epoch_total_loss = 0.0
-            epoch_rec_loss = 0.0
+            epoch_embed_loss = 0.0
             epoch_sigreg_loss = 0.0
 
             pbar = tqdm(self.train_loader, desc = f"Epoch {epoch}/{self.epochs}", unit = "batch")
@@ -82,8 +100,8 @@ class SIGReg_IJEPA_Trainer:
                 self.optimizer.zero_grad()
 
                 # Forward Pass (AMP)
-                with autocast():
-                    rec_loss, sigreg_loss, total_loss = self.model(batch, self.global_step)
+                with torch.autocast(device_type = self.device.type):
+                    embed_loss, sigreg_loss, total_loss = self.model(batch)
 
                 # Scale, Backward Pass and Optimization - AMP
                 self.scaler.scale(total_loss).backward()
@@ -98,27 +116,26 @@ class SIGReg_IJEPA_Trainer:
 
                 # Update Metrics
                 epoch_total_loss += total_loss.item()
-                epoch_rec_loss += rec_loss.item()
+                epoch_embed_loss += embed_loss.item()
                 epoch_sigreg_loss += sigreg_loss.item()
 
                 pbar.set_postfix({
-                    "Loss": f"{total_loss.item():.4f}",
-                    "Rec": f"{rec_loss.item():.4f}",
-                    "SIGReg": f"{sigreg_loss.item():.4f}"
+                    "Total_Loss": f"{total_loss.item():.4f}",
+                    "Embed_Loss": f"{embed_loss.item():.4f}",
+                    "SIGReg_Loss": f"{sigreg_loss.item():.4f}"
                 })
 
-                self.global_step += 1
-
+                
             # Update the Scheduler
             self.lr_scheduler.step()
 
             # Average the Metrics
             avg_total = epoch_total_loss / len(self.train_loader)
-            avg_rec = epoch_rec_loss / len(self.train_loader)
+            avg_embed = epoch_embed_loss / len(self.train_loader)
             avg_sigreg = epoch_sigreg_loss / len(self.train_loader)
 
             self.history["total_loss"].append(avg_total)
-            self.history["rec_loss"].append(avg_rec)
+            self.history["embed_loss"].append(avg_embed)
             self.history["sigreg_loss"].append(avg_sigreg)
 
             # Save Checkpoints
@@ -167,13 +184,27 @@ class SIGReg_IJEPA_Trainer:
             proj = reducer.fit_transform(embeds_np)
 
             if all_labels:
-                scatter = ax.scatter(proj[:, 0], proj[:, 1], c = all_labels, cmap = "tab10", s = 15, alpha = 0.8)
-                plt.colorbar(scatter, ax = ax, label = "Classes")
+                sns.scatterplot(
+                    x = proj[:, 0], y = proj[:, 1], 
+                    hue = all_labels, 
+                    palette = "husl",
+                    s = 40, 
+                    edgecolor = "white", linewidth = 0.3, alpha = 0.85, 
+                    ax = ax
+                )
+                
+                ax.legend(title = "Clases", bbox_to_anchor = (1.05, 1), loc = 'upper left', frameon = True)
             else:
-                ax.scatter(proj[:, 0], proj[:, 1], alpha = 0.7, s = 15)
+                sns.scatterplot(x = proj[:, 0], y = proj[:, 1], color = "#34495e", 
+                                s = 40, alpha = 0.7, edgecolor = "none", ax = ax)
 
-            ax.set_title(f"Latent Space (UMAP) - Epoch {epoch}")
-            ax.grid(True, alpha = 0.3)
+            
+            ax.set_title(f"Latent Space Projection(UMAP) - Epoch {epoch}", fontweight="bold", pad=15)
+            ax.set_xlabel("UMAP Dim 1", fontweight="bold")
+            ax.set_ylabel("UMAP Dim 2", fontweight="bold")
+
+            sns.despine(trim = True)
+            plt.tight_layout()
 
             save_path = os.path.join(self.figures_dir, f"latent_epoch_{epoch}.png")
             plt.savefig(save_path, dpi = 300, bbox_inches = "tight")
@@ -186,20 +217,27 @@ class SIGReg_IJEPA_Trainer:
         """Graphs the Loss Evolution During Pre-Training"""
 
         epochs_range = range(1, self.epochs + 1)
-
         fig, ax = plt.subplots(figsize = (12, 12))
-        ax.plot(epochs_range, self.history["total_loss"], label = "Total Loss", color = "black", linewidth = 2)
-        ax.plot(epochs_range, self.history["rec_loss"], label = "Reconstruction Loss", linestyle = "--")
-        ax.plot(epochs_range, self.history["sigreg_loss"], label = "SIGReg Loss", linestyle = ":")
 
-        ax.set_xlabel("Epochs")
-        ax.set_ylabel("Loss")
-        ax.set_title("Loss Evolution During Pre-Training")
-        ax.legend()
-        ax.grid(True, alpha = 0.4)
+        colors = sns.color_palette("deep")
+
+        sns.lineplot(x = epochs_range, y = self.history["total_loss"], label = "Total Loss", color = "black", 
+                     linewidth = 2.5, ax = ax)
+        sns.lineplot(x = epochs_range, y = self.history["embed_loss"], label = "Embedding Prediction Loss", color = colors[0], 
+                     linestyle = "--", linewidth = 2, ax = ax)
+        sns.lineplot(x = epochs_range, y = self.history["sigreg_loss"], label = "SIGReg Loss", color = colors[3], 
+                     linestyle = ":", linewidth = 2, ax = ax)
+
+        ax.set_xlabel("Epochs", fontweight = "bold")
+        ax.set_ylabel("Loss", fontweight = "bold")
+        ax.set_title("Loss Evolution During Pre-Training", fontweight = "bold", pad = 15)
+
+        ax.legend(frameon = True, shadow = False, edgecolor = "gray", loc = "upper right")
+        sns.despine(trim = True)
+        plt.tight_layout()
 
         save_path = os.path.join(self.losses_dir, "training_losses.png")
-        plt.savefig(save_path, dpi = 300)
+        plt.savefig(save_path, dpi = 300, bbox_inches = "tight")
         plt.close(fig)
 
     def _save_checkpoint(self,
@@ -210,7 +248,6 @@ class SIGReg_IJEPA_Trainer:
 
         checkpoint = {
             "epoch": epoch,
-            "global_step": self.global_step,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "lr_scheduler_state_dict": self.lr_scheduler.state_dict(),
@@ -337,7 +374,7 @@ class KD_Trainer:
         self.lr_scheduler = lr_scheduler
 
         # AMP
-        self.scaler = GradScaler()
+        self.scaler = torch.amp.GradScaler(device = device)
 
         # Data and train configuration
         self.train_dataloader = train_dataloader
@@ -399,11 +436,11 @@ class KD_Trainer:
                 self.optimizer.zero_grad()
 
                 # Teacher's Forward Pass - AMP
-                with torch.no_grad(), autocast():
+                with torch.no_grad(), torch.autocast(device_type = self.device.type):
                     teacher_out = self.teacher(img_teacher)
 
                 # Student's Forward Pass - AMP
-                with autocast():
+                with torch.autocast(device_type = self.device.type):
                     student_out = self.student(img_student)
 
                     # Tensor Standarization (B, C, H, W)
@@ -456,7 +493,7 @@ class KD_Trainer:
     def _visualize_latent_space(self, epoch: int) -> None:
         """Extracts Student's Test Embeddings and plots its distribution."""
         self.student.eval()
-        if isinstance(self.projector, nn.Module):
+        if hasattr(self, 'projector') and isinstance(self.projector, nn.Module):
             self.projector.eval()
 
         all_embeddings = []
@@ -493,13 +530,25 @@ class KD_Trainer:
             proj = reducer.fit_transform(embeds_np)
 
             if all_labels:
-                scatter = ax.scatter(proj[:, 0], proj[:, 1], c = all_labels, cmap = "tab10", s = 15, alpha = 0.8)
-                plt.colorbar(scatter, ax = ax, label = "Classes")
+                sns.scatterplot(
+                    x = proj[:, 0], y = proj[:, 1], 
+                    hue = all_labels, 
+                    palette = "husl", 
+                    s = 40, 
+                    edgecolor = "white", linewidth = 0.3, alpha = 0.85, 
+                    ax = ax
+                )
+                ax.legend(title = "Clases", bbox_to_anchor = (1.05, 1), loc = 'upper left', frameon = True)
             else:
-                ax.scatter(proj[:, 0], proj[:, 1], alpha = 0.7, s = 15)
+                sns.scatterplot(x = proj[:, 0], y = proj[:, 1], color = "#34495e", s = 40, alpha = 0.7, 
+                                edgecolor = "none", ax = ax)
 
-            ax.set_title(f"Student Latent Space (UMAP) - Epoch {epoch}")
-            ax.grid(True, alpha = 0.3)
+            ax.set_title(f"Student Latent Space Projection (UMAP) - Epoch {epoch}", fontweight = "bold", pad = 15)
+            ax.set_xlabel("UMAP Dim 1", fontweight = "bold")
+            ax.set_ylabel("UMAP Dim 2", fontweight = "bold")
+
+            sns.despine(trim = True)
+            plt.tight_layout()
 
             save_path = os.path.join(self.figures_dir, f"latent_epoch_{epoch}.png")
             plt.savefig(save_path, dpi = 300, bbox_inches = "tight")
@@ -512,24 +561,31 @@ class KD_Trainer:
         """Graphs the Loss Evolution During Distillation"""
         epochs_range = range(1, self.epochs + 1)
         fig, ax = plt.subplots(figsize = (10, 6))
-        
-        ax.plot(epochs_range, self.history["kd_loss"], label = "Distillation Loss", color = "blue", linewidth = 2)
-        ax.set_xlabel("Epochs")
-        ax.set_ylabel("Loss")
-        ax.set_title("Loss Evolution During Distillation")
-        ax.legend()
-        ax.grid(True, alpha = 0.4)
 
+        colors = sns.color_palette("deep")
+
+        sns.lineplot(x = epochs_range, y = self.history["kd_loss"], label = "Distillation Loss", 
+                     color = colors[0], linewidth = 2.5, ax = ax)
+
+        ax.set_xlabel("Epochs", fontweight = "bold")
+        ax.set_ylabel("Distillation Loss", fontweight = "bold")
+        ax.set_title("Loss Evolution During Knowledge Distillation", fontweight = "bold", pad = 15)
+
+        ax.legend(frameon = True, shadow = False, edgecolor = "gray")
+        sns.despine(trim = True)
+        plt.tight_layout()
+
+        # Guardado
         save_path = os.path.join(self.losses_dir, "distillation_loss.png")
-        plt.savefig(save_path, dpi = 300)
+        plt.savefig(save_path, dpi = 300, bbox_inches = "tight")
         plt.close(fig)
+        
 
     def _save_checkpoint(self, epoch: int, current_loss: float, is_best: bool) -> None:
         """Saves a Model Checkpoint"""
         
         checkpoint = {
             "epoch": epoch,
-            "global_step": self.global_step,
             "student_state_dict": self.student.state_dict(),
             "projector_state_dict": self.projector.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
@@ -592,4 +648,246 @@ class KD_Trainer:
             optimize = True
         )
         print(f"Animation saved in: {gif_path}")
+
+
+class ClassificationTrainer:
+    def __init__(self,
+                 model: Union[ViTModel, MicroViTModel, MobileNetModel, ResNetModel],
+                 train_dataloader: DataLoader,
+                 val_dataloader: DataLoader,
+                 optimizer: optim.Optimizer,
+                 lr_scheduler: LRScheduler,
+                 device: torch.device,
+                 epochs: int,
+                 save_dir: str = "outputs") -> None:
+
+        self.model = model.to(device)
+        self.train_loader = train_dataloader
+        self.val_loader = val_dataloader
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
+        self.device = device
+        self.epochs = epochs
+
+        self.criterion = nn.CrossEntropyLoss()
+
+        # AMP
+        self.scaler = torch.amp.GradScaler(device = device)
+
+        # Metrics Traking
+        self.history = {
+            "train_loss": [], "val_loss": [],
+            "train_acc": [], "train_f1": [],
+            "val_acc": [], "val_f1": []
+        }
+
+        self.best_metric = 0.0
+
+        # Directories
+        self.checkpoint_dir = os.path.join(save_dir, "checkpoints")
+        self.figures_dir = os.path.join(save_dir, "figures")
+
+        for d in [self.checkpoint_dir, self.figures_dir]:
+            os.makedirs(d, exist_ok = True)
+
+    def train(self) -> None:
+        print(f"Iniciando Entrenamiento en {self.device} por {self.epochs} épocas...")
+
+        for epoch in range(1, self.epochs + 1):
+            self.model.train()
+            epoch_loss = 0.0
+            all_preds = []
+            all_labels = []
+            
+            pbar = tqdm(self.train_loader, desc = f"Época {epoch}/{self.epochs} [Train]", unit = "batch", leave = True)
+
+            for images, labels in pbar:
+
+                images, labels = images.to(self.device), labels.to(self.device)
+                self.optimizer.zero_grad()
+
+                # Forward Pass (AMP)
+                with torch.autocast(device_type = self.device.type):
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, labels)
+
+                # Scale, Backward Pass and Optimization - AMP
+                self.scaler.scale(loss).backward()
+
+                # Gradient Clipping
+                self.scaler.unscale_(self.optimizer)
+                nn.utils.clip_grad_norm_(self.model.parameters(), max_norm = 1.0)
+
+                # Optimizer step using the scaler
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+
+                # Update Metrics
+                epoch_loss += loss.item()
+                
+                preds = torch.argmax(outputs, dim = 1)
+                all_preds.extend(preds.view(-1).detach().cpu().numpy().tolist())
+                all_labels.extend(labels.view(-1).detach().cpu().numpy().tolist())
+
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    current_acc = accuracy_score(all_labels, all_preds)
+                    current_f1 = f1_score(all_labels, all_preds, average = "macro")
+
+                # Update Postfix with Loss, Acc y F1
+                pbar.set_postfix({
+                    "Loss": f"{loss.item():.4f}",
+                    "Acc": f"{current_acc:.4f}",
+                    "F1": f"{current_f1:.4f}"
+                })
+
+
+            # Update the Scheduler
+            self.lr_scheduler.step()
+
+            # Compute Train Metrics
+            train_acc = accuracy_score(all_labels, all_preds)
+            train_f1 = f1_score(all_labels, all_preds, average = "macro")
+            avg_train_loss = epoch_loss / len(self.train_loader)
+
+            # Validation Phase
+            val_loss, val_acc, val_f1 = self._validate(epoch)
+
+            # Record and Checkpointing
+            self.history["train_loss"].append(avg_train_loss)
+            self.history["val_loss"].append(val_loss)
+            self.history["train_acc"].append(train_acc)
+            self.history["train_f1"].append(train_f1)
+            self.history["val_acc"].append(val_acc)
+            self.history["val_f1"].append(val_f1)
+
+            is_best = val_f1 > self.best_metric
+            if is_best:
+                self.best_metric = val_f1
+
+            # Save Checkpoints
+            self._save_checkpoint(epoch, val_loss, val_f1, is_best)
+            
+            
+        # Plot Metrics
+        self._plot_metrics()
+
+        print("Entrenamiento Completado...")
+
+    @torch.no_grad()
+    def _validate(self, epoch: int) -> tuple[float, float, float]:
+        self.model.eval()
+        val_loss = 0.0
+        all_preds = []
+        all_labels = []
+
+        pbar = tqdm(self.val_loader, desc=f"Época {epoch}/{self.epochs} [Val]", unit = "batch", leave = True)
+
+        for images, labels in pbar:
+            images, labels = images.to(self.device), labels.to(self.device)
+            with torch.autocast(device_type = self.device.type):
+                outputs = self.model(images)
+                loss = self.criterion(outputs, labels)
+
+            val_loss += loss.item()
+            preds = torch.argmax(outputs, dim = 1)
+            all_preds.extend(preds.view(-1).detach().cpu().numpy().tolist())
+            all_labels.extend(labels.view(-1).detach().cpu().numpy().tolist())
+
+            current_loss = val_loss / (pbar.n + 1)
+            current_acc = accuracy_score(all_labels, all_preds)
+            current_f1 = f1_score(
+                all_labels,
+                all_preds,
+                average = "macro"
+            )
+    
+            pbar.set_postfix({
+                "Loss": f"{current_loss:.4f}",
+                "Acc": f"{current_acc:.4f}",
+                "F1": f"{current_f1:.4f}"
+            })
+
+        avg_loss = val_loss / len(self.val_loader)
+        acc = accuracy_score(all_labels, all_preds)
+        f1 = f1_score(all_labels, all_preds, average = "macro")
+
+        tqdm.write(
+            f"Época {epoch}/{self.epochs} [Val] -> "
+            f"Loss: {avg_loss:.4f} | "
+            f"Acc: {acc:.4f} | "
+            f"F1: {f1:.4f}"
+        )
+
+        return avg_loss, acc, f1
+
+
+    def _save_checkpoint(self,
+                         epoch: int,
+                         loss: float,
+                         f1: float,
+                         is_best: bool) -> None:
+        """Saves a Model Checkpoint"""
+
+        # Extract the pure model
+        unwrapped_model = self.model._orig_mod if hasattr(self.model, "_orig_mod") else self.model
+
+        checkpoint = {
+            "epoch": epoch,
+            "model_state_dict": unwrapped_model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "lr_scheduler_state_dict": self.lr_scheduler.state_dict(),
+            "scaler_state_dict": self.scaler.state_dict(),
+            "val_loss": loss,
+            "val_f1": f1,
+            "config": unwrapped_model.config.__dict__ if hasattr(unwrapped_model, "config") else None
+        }
+
+        # Save Latest
+        last_path = os.path.join(self.checkpoint_dir, "latest_checkpoint.pth")
+        torch.save(checkpoint, last_path)
+
+        # Saves if is the best
+        if is_best:
+            best_path = os.path.join(self.checkpoint_dir, "best_model.pth")
+            torch.save(checkpoint, best_path)
+            print(f"-> Nuevo Mejor Modelo Guardado")
+
+    def _plot_metrics(self) -> None:
+        """Graphs the Accuracy and F1 Evolution"""
+        epochs_range = range(1, self.epochs + 1)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize = (14, 5.5))
+
+        colors = sns.color_palette("deep")
+
+        # Loss Plot
+        sns.lineplot(x = epochs_range, y = self.history["train_loss"], label = "Train Loss", 
+                     color = colors[0], linewidth = 2.5, ax = ax1)
+        sns.lineplot(x = epochs_range, y = self.history["val_loss"], label = "Val Loss", 
+                     color = colors[1], linestyle = "--", linewidth = 2.5, ax = ax1)
+        ax1.set_title("Evolución de la Función de Pérdida", fontweight = "bold", pad = 12)
+        ax1.set_xlabel("Épocas", fontweight = "bold")
+        ax1.set_ylabel("CrossEntropy Loss", fontweight = "bold")
+        ax1.legend(frameon = True, shadow = False)
+
+        # Acc & F1 Plot
+        sns.lineplot(x = epochs_range, y = self.history["train_acc"], label = "Train Acc", 
+                     color = colors[2], linewidth = 2, ax = ax2)
+        sns.lineplot(x = epochs_range, y = self.history["val_acc"], label = "Val Acc", 
+                     color = colors[3], linestyle = "--", linewidth = 2, ax = ax2)
+        sns.lineplot(x = epochs_range, y = self.history["val_f1"], label = "Val F1 (Macro)", 
+                     color = colors[4], linestyle = ":", linewidth = 2, ax = ax2)
+
+        ax2.set_title("Evolución de Métricas de Rendimiento", fontweight = "bold", pad = 12)
+        ax2.set_xlabel("Épocas", fontweight = "bold")
+        ax2.set_ylabel("Puntuación (Score)", fontweight = "bold")
+        ax2.set_ylim(0.0, 1.05) 
+        ax2.legend(loc = "lower right", frameon = True)
+
+        sns.despine(trim = True)
+        plt.tight_layout()
+
+        plt.savefig(os.path.join(self.figures_dir, "training_metrics.png"), dpi = 300, bbox_inches = "tight")
+        plt.close(fig)
         

@@ -10,6 +10,27 @@ import cv2
 
 from typing import List, Optional
 
+import os 
+import pandas as pd
+import seaborn as sns
+
+sns.set_theme(
+    context = "paper", 
+    style = "ticks", 
+    palette = "deep", 
+    font = "sans-serif", 
+    font_scale = 1.2,
+    rc = {
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "grid.alpha": 0.2,
+        "grid.linestyle": "--",
+        "figure.dpi": 300
+    }
+)
+
+
 class LatentVisualizer:
     @staticmethod
     def plot_embeddings_evolution(embeddings_list: List[torch.Tensor], labels: Optional[List[int]] = None, method: str = 'umap'):
@@ -106,3 +127,161 @@ def attention_visualizer(model: nn.Module,
 
     plt.tight_layout()
     plt.show()
+
+
+def generate_degradation_plots(dir_paths: List[str],
+                               csv_filename: str = "benchmark_summary.csv") -> pd.DataFrame:
+    """
+    Lee los archivos 'benchmark_summary.csv de una lista de directorios, extrae la
+    arquitectura del nombre de cada carpeta y genera gráficos de degradación.
+    """
+
+    combined_data = []
+
+    # 1. Extracción de datos por ruta
+    for path in dir_paths:
+        csv_path = os.path.join(path, csv_filename)
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"[Error] No se encontró el archivo: {csv_path}.")
+
+        # Extraer nombre de la arquitectura desde el nombre del directorio
+        dir_name = os.path.basename(os.path.normpath(path))
+        model_name = (
+                dir_name.replace("_Benchmark_Results", "")
+                .replace("_results", "")
+                .replace("_benchmark", "")
+        )
+
+        df = pd.read_csv(csv_path)
+        df["Model"] = model_name
+        combined_data.append(df)
+
+    if not combined_data:
+        raise ValueError("No se cargaron datos válidos desde las rutas especificadas.")
+
+    full_df = pd.concat(combined_data, ignore_index = True)
+
+    # Asegurar el orden decreciente de escasez de datos (100% -> 5%)
+    full_df = full_df.sort_values(by = "Fraction", ascending = False) 
+
+    # Formatear la fracción como porcentaje
+    full_df["Fraction_Pct"] = full_df["Fraction"].apply(lambda x: f"{int(round(x * 100))}")
+    x_labels = [f"{int(round(f * 100))}%" for f in sorted(full_df["Fraction"].unique(), reverse=True)]
+
+    # 2. Establecer estilo de gráfico
+    sns.set_theme(style = "ticks", context = "paper", font = "sans-serif", font_scale = 1.3)
+    palette = sns.color_palette("husl", n_colors = full_df["Model"].nunique())
+    markers = ["o", "s", "^", "D", "v", "P", "X"]
+    models = full_df["Model"].unique()
+    model_style_map = {m: (palette[i], markers[i % len(markers)]) for i, m in enumerate(models)}
+
+    # Métricas a graficar: (Columna Media, Columna Std, Título Eje Y, Título Gráfico)
+    metrics_config = [
+        ("IDD_F1_Mean", "IDD_F1_Std", "Macro F1-Score", "Degradación en Test IDD (F1-Score)"),
+        ("IDD_Acc_Mean", "IDD_Acc_Std", "Accuracy", "Degradación en Test IDD (Accuracy)"),
+        ("OOD_F1_Mean", "OOD_F1_Std", "Macro F1-Score", "Degradación en Test OOD (F1-Score)"),
+        ("OOD_Acc_Mean", "OOD_Acc_Std", "Accuracy", "Degradación en Test OOD (Accuracy)")
+    ]
+
+    # Helper para trazar cada curva y su banda de error
+    def plot_single_curve(ax, mean_col, std_col, y_label, title):
+        for model in models:
+            sub_df = full_df[full_df["Model"] == model]
+            color, marker = model_style_map[model]
+
+            x_vals = range(len(sub_df))
+            y_mean = sub_df[mean_col].values
+            y_std = sub_df[std_col].values
+
+            # Línea de tendencia principal
+            ax.plot(
+                    x_vals, y_mean,
+                    label = model,
+                    color = color,
+                    marker = marker,
+                    linewidth = 2.5,
+                    markersize = 8,
+                    markeredgecolor = 'white',
+                    markeredgewidth = 1
+            )
+
+            # Sombreado de la desviación estándar
+            ax.fill_between(
+                    x_vals,
+                    y_mean - y_std,
+                    y_mean + y_std,
+                    color = color,
+                    alpha = 0.15
+            )
+
+        ax.set_xticks(range(len(x_labels)))
+        ax.set_xticklabels(x_labels, fontweight = "bold")
+        ax.set_xlabel("Escenario de Escasez de Datos", fontsize = 11, fontweight = "bold")
+        ax.set_ylabel(ylabel, fontsize = 11, fontweight = "bold")
+        ax.set_title(title, fontsize = 12, fontweight = "bold", pad = 10)
+        ax.set_ylim(0.0, 1.02)
+        ax.grid(True, linestyle = "--", alpha = 0.5)
+
+        ax.grid(True, linestyle = ":", alpha = 0.4)
+        sns.despine(ax = ax)
+
+    # 3. Generación y guardado de gráficos individuales
+    individual_filenames = [
+        "degradation_idd_f1.png",
+        "degradation_idd_acc.png",
+        "degradation_ood_f1.png",
+        "degradation_ood_acc.png"
+    ]
+
+    for (mean_col, std_col, ylabel, title), fname in zip(metrics_config, individual_filenames):
+        fig, ax = plt.subplots(figsize = (7, 5))
+        plot_single_curve(ax, mean_col, std_col, ylabel, title)
+        ax.legend(
+                title = "Arquitectura", 
+                loc = "upper right", 
+                frameon = True,
+                framealpha = 0.9,
+                edgecolor = "gray"
+        )
+
+        current_ylim = ax.get_ylim()
+        ax.set_ylim(0.0, current_ylim[1] * 1.15)
+
+        plt.tight_layout()
+
+        # Guardar una copia en cada directorio de origen
+        for path in dir_paths:
+            fig.savefig(os.path.join(path, fname), dpi = 300, bbox_inches = "tight")
+        plt.close(fig)
+
+    # 4. Generación y guardado de la Figura Compuesta
+    fig_grid, axes = plt.subplots(2, 2, figsize = (14, 10))
+    axes_flat = axes.flatten()
+
+    for idx, (mean_col, std_col, ylabel, title) in enumerate(metrics_config):
+        plot_single_curve(axes_flat[idx], mean_col, std_col, ylabel, title)
+
+    # Leyenda unificada para el panel completo
+    handles, labels = axes_flat[0].get_legend_handles_labels()
+    fig_grid.legend(
+            handles, labels,
+            loc = "lower center",
+            bbox_to_anchor = (0.5, 1.0),
+            ncol = len(models),
+            title = "Arquitectura de Deep Learning",
+            frameon = True,
+            fontsize = 11,
+            title_fontsize = 12,
+            edgecolor = "black"
+    )
+    plt.tight_layout()
+    fig_grid.subplots_adjust(top = 0.90)
+
+    grid_filename = "degradation_composite_panel.png"
+    for path in dir_paths:
+        fig_grid.savefig(os.path.join(path, grid_filename), dpi = 300, bbox_inches = "tight")
+    plt.close(fig_grid)
+
+    print(f"Proceso completado. Se generaron las gráficas en los {len(dir_paths)} directorios.")
+    
+    return full_df

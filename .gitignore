@@ -1,4 +1,4 @@
-.ipy_checkpoints
+.ipynb_checkpoints
 __pycache__
 Datasets/
 Logs/
@@ -7,9 +7,12 @@ MicroViTS1_Student/
 MicroViTS2_Student/
 MicroViTS3_Student/
 MobileNetV2_Student
-Preprocessed_data/
+Pretrain_Data/
+In_Distribution_Dataset/
+Out_Distribution_Dataset/
 rknn_env/
-Test_data_preprocessed/
 tf_env/
 *.onnx
 *.ipynb
+.vscode
+

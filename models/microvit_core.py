@@ -305,6 +305,14 @@ class MicroViTModel(nn.Module):
         for _ in range(blocks[2])
         ])
 
+        # ---- Classifier ----
+        self.num_classes = config.num_classes
+        if self.num_classes is not None:
+            self.pool = nn.AdaptiveAvgPool2d((1, 1))
+            out_channels = self.get_output_size()[0]
+            self.classifier = nn.Linear(out_channels, self.num_classes)
+        # --------------------
+
     def get_output_size(self) -> torch.Size:
         return self._out_shape
         
@@ -319,5 +327,11 @@ class MicroViTModel(nn.Module):
         X = self.patch_embed2(X)
         X = self.stage3(X)
 
+        # ---- Classification ----
+        if self.num_classes is not None:
+            X = self.pool(X)
+            X = torch.flatten(X, 1)
+            X = self.classifier(X)
+        # ------------------------
         return X
 

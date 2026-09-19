@@ -25,7 +25,11 @@ def main():
         model = model,
         output_path = output_path,
         test_data_path = test_data_path,
-        do_quantization = False
+        do_quantization = True,
+        target_platform = "rk3588",
+        quantized_algorithm = "normal",
+        quantized_method = "channel",
+        calib_samples = 100
     )
 
     if student_arch == "MobileNet":
@@ -33,7 +37,6 @@ def main():
                 onnx_file_path = "./MobileNetV2_Student/MobileNetV2_Student.onnx",
                 test_data_path = test_data_path,
                 output_dir = output_path
-
         )
 
 if __name__ == "__main__":

@@ -1,91 +1,49 @@
 import torch
-import torch.distributed as dist
+import torch.nn as nn
 
-"""def SIGReg_Loss(x: torch.Tensor, global_step: int, num_slices: int = 256):
+class SIGReg(nn.Module):
+    """Sketched Isotropic Gaussian Regularizer"""
+    def __init__(self,
+                 knots: int = 17,
+                 t_max: float = 5.0,
+                 num_slices: int = 1024) -> None:
 
-    # MODIFICAR
-    B, N_p, D = x.shape
-    
-    # Slice Sampling (synced across devices)
-    dev = dict(device = x.device)
-    g = torch.Generator(**dev)
-    g.manual_seed(global_step)
-    #proj_shape = (x.size(1), num_slices)
-    proj_shape = (D, num_slices)
-    A = torch.randn(proj_shape, generator = g, **dev)
-    A /= A.norm(p = 2, dim = 0)
+        super().__init__()
 
-    # Epps-Pulley stat
-    # Integration Points
-    t = torch.linspace(-5, 5, 17, **dev)
-    # Theoretical CF for N(0, 1) and Gauss. window
-    exp_f = torch.exp(-0.5 * t**2)
+        self.num_slices = num_slices
 
-    # Empirical CF (gathered across devices)
-    #x_t = (x @ A).unsqueeze(2) * t  # (N, M, T)
-    #ecf = (1j * x_t).exp().mean(0)
-    x_t = (x @ A).unsqueeze(-1) * t # (B, N_p, num_slices, T)
-    ecf = (1j * x_t).exp().mean(1) # (B, num_slices, T)
-    
-    # Solo reducir si el entrenamiento distribuido está activo
-    if dist.is_available() and dist.is_initialized():
-        dist.all_reduce(ecf, op = dist.ReduceOp.AVG)
-        world_size = dist.get_world_size()
-    else:
-        world_size = 1
+        t = torch.linspace(-t_max, t_max, knots, dtype = torch.float32)
+        phi = torch.exp(-0.5 * t.square()) 
 
-    # Weighted L2 Distance
-    err = (ecf - exp_f).abs().square().mul(exp_f)
+        self.register_buffer("t", t)
+        self.register_buffer("phi", phi)
 
-    #N = x.size(0) * world_size
-    N = N_p * world_size
-    
-    #T = torch.trapz(err, t, dim = 1) * N # (B, num_slices)
-    T = torch.trapz(err, t, dim = -1) * N # (B, num_slices)
-    
-    #return T
-    return T.mean()"""
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: Tensor of shape (..., D)
+        """
 
-def SIGReg_Loss(x: torch.Tensor, global_step: int, num_slices: int = 256):
-    B, N_p, D = x.shape
-    
-    # Slice Sampling (synced across devices)
-    dev = dict(device = x.device)
-    g = torch.Generator(**dev)
-    g.manual_seed(global_step)
-    
-    proj_shape = (D, num_slices)
-    A = torch.randn(proj_shape, generator = g, **dev)
-    A /= A.norm(p = 2, dim = 0)
+        flat = x.reshape(-1, x.size(-1)) # (N, D), N = B * N_p
+        N = flat.size(0)
 
-    # Epps-Pulley stat
-    # Integration Points
-    t = torch.linspace(-5, 5, 17, **dev)
-    # Theoretical CF for N(0, 1) and Gauss. window (es puramente real)
-    exp_f = torch.exp(-0.5 * t**2)
+        # Random Unit Projections (Cramer-Wold)
+        A = torch.rand(flat.size(-1), self.num_slices, device = flat.device, dtype = torch.float32)
+        A = A / A.norm(p = 2, dim = 0)
+        A = A.to(flat.dtype)
 
-    # Empirical CF (usando Fórmula de Euler para evitar números complejos)
-    x_t = (x @ A).unsqueeze(-1) * t # (B, N_p, num_slices, T)
-    
-    # En lugar de (1j * x_t).exp(), separamos en parte real y parte imaginaria
-    ecf_real = torch.cos(x_t).mean(1) # Parte real (B, num_slices, T)
-    ecf_imag = torch.sin(x_t).mean(1) # Parte imaginaria (B, num_slices, T)
-    
-    # Solo reducir si el entrenamiento distribuido está activo
-    if dist.is_available() and dist.is_initialized():
-        dist.all_reduce(ecf_real, op = dist.ReduceOp.AVG)
-        dist.all_reduce(ecf_imag, op = dist.ReduceOp.AVG)
-        world_size = dist.get_world_size()
-    else:
-        world_size = 1
+        t = self.t.to(flat.dtype)
+        phi = self.phi.to(flat.dtype)
 
-    # Distancia L2 ponderada
-    # |(ecf_real + 1j * ecf_imag) - exp_f|^2 = (ecf_real - exp_f)^2 + (ecf_imag)^2
-    err_sq = (ecf_real - exp_f).square() + ecf_imag.square()
-    err = err_sq.mul(exp_f)
+        # Empirical Characteristic Function (Euler)
+        x_t = (flat @ A).unsqueeze(-1) * t # (N, num_slices, knots)
+        ecf_real = x_t.cos().mean(0) # Average over 'N' samples
+        ecf_imag = x_t.sin().mean(0)
 
-    N = N_p * world_size
-    
-    T = torch.trapz(err, t, dim = -1) * N # (B, num_slices)
-    
-    return T.mean()
+        # L2 Distance Weighted by Gaussian Window 'phi(t)' integrated in 't' (Epps-Pulley)
+        err = (ecf_real - phi).square() + ecf_imag.square()
+        err = err * phi
+        stat = torch.trapezoid(err, t, dim = -1) * N # (num_slices,)
+
+        return stat.mean() # Average over random projections
+
+

@@ -6,14 +6,14 @@ from utils.masking_generator import MultiBlockMasking
 from models.vit_core import ViTModel
 from models.predictor_core import PredictorModel
 
-from losses.loss import IJEPA_Loss
-from losses.sigreg import SIGReg_Loss
+from losses.embedding import EmbeddingLoss
+from losses.sigreg import SIGReg
 
 from configs.config import BaseConfig
 
 from typing import Tuple
 
-class SIGReg_IJEPA(nn.Module):
+class AlgaeJepa(nn.Module):
     def __init__(self,
                  config: BaseConfig,
                  loss_type: str = "mse",
@@ -32,7 +32,8 @@ class SIGReg_IJEPA(nn.Module):
             prediction_ratio = config.prediction_ratio
         )
 
-        self.reconstruction_criterion = IJEPA_Loss(loss_type)
+        self.sigreg = SIGReg(knots = 17, t_max = 5.0, num_slices = 1024)
+        self.embedding_prediction_criterion = EmbeddingLoss(loss_type)
         self.lambda_sigreg = lambda_sigreg
 
 
@@ -144,8 +145,7 @@ class SIGReg_IJEPA(nn.Module):
         return context_embeddings, target_embeddings, context_cos_sin, target_cos_sin
 
     def forward(self,
-                x_input: torch.Tensor,
-                global_step: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                x_input: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         device = x_input.device
         B = x_input.shape[0]
@@ -172,17 +172,16 @@ class SIGReg_IJEPA(nn.Module):
             target_cos_sin
         )
 
-        # Compute the Reconstruction Loss
-        rec_loss = self.reconstruction_criterion(
+        # Compute the Target Embedding Prediction Loss
+        embedding_loss = self.embedding_prediction_criterion(
             predicted_target_embeddings,
             target_embeddings
         )
 
         # Compute the SIGReg Loss
-        #sigreg_loss = SIGReg_Loss(target_embeddings.reshape(-1, Dim), global_step = global_step).mean()
-        sigreg_loss = SIGReg_Loss(target_embeddings, global_step = global_step)
+        sigreg_loss = self.sigreg(target_embeddings)
 
         # Compute Total Loss
-        total_loss = (1 - self.lambda_sigreg) * rec_loss + self.lambda_sigreg * sigreg_loss
+        total_loss = (1 - self.lambda_sigreg) * embedding_loss + self.lambda_sigreg * sigreg_loss
 
-        return rec_loss, sigreg_loss, total_loss
+        return embedding_loss, sigreg_loss, total_loss

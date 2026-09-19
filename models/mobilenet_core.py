@@ -30,6 +30,14 @@ class MobileNetModel(nn.Module):
 
         self._output_shape = None
 
+        # ---- Classifier ----
+        self.num_classes = config.num_classes
+        if self.num_classes is not None:
+            self.pool = nn.AdaptiveAvgPool2d((1, 1))
+            out_channels = self.get_output_size()[0]
+            self.classifier = nn.Linear(out_channels, self.num_classes)
+        # --------------------
+
     def _adapt_input_channels(self):
         """
         Modifies the first convolutional layer to the new number of channels.
@@ -58,7 +66,16 @@ class MobileNetModel(nn.Module):
 
     def forward(self, 
                 pixel_values: torch.Tensor) -> torch.Tensor:
-        return self.backbone(pixel_values)
+        x = self.backbone(pixel_values)
+
+        # ---- Classification ----
+        if self.num_classes is not None:
+            x = self.pool(x)
+            x = torch.flatten(x, 1)
+            x = self.classifier(x)
+        # ------------------------
+
+        return x
 
     def get_output_size(self) -> tuple[int, int, int]:
 

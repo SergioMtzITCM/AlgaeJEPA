@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class IJEPA_Loss(nn.Module):
+class EmbeddingLoss(nn.Module):
     def __init__(self,
                  loss_type: str = "mse"):
         super().__init__()

@@ -1,4 +1,6 @@
 import torch
+from pathlib import Path
+
 from utils.loader import load_student_model, load_pretrain_encoder
 from utils.model_profiler import profile_model
 
@@ -19,7 +21,12 @@ def main():
     else:
         raise ValueError("'model_role' must be 'teacher' or 'student'")
 
-    profile_model(model = model, device = device)
+    profile_model(
+                  model = model, 
+                  device = device,
+                  output_dir = "./MicroViTS3_Student/",
+                  output_name = f"{model_role}_{student_arch}"
+    )
 
 
 if __name__ == "__main__":

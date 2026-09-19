@@ -6,6 +6,7 @@ class MicroViTConfig:
     model: str = "S1"
     image_size: int = 224
     num_channels: int = 3
+    num_classes: int = None
 
     # Stability
     layerscale_value: float = 1e-5
@@ -13,8 +14,15 @@ class MicroViTConfig:
 @dataclass
 class MobileNetConfig:
     model: str = "V2",
-    image_size: int = 224,
+    image_size: int = 224
     num_channels: int = 3
+    num_classes: int = None
+
+@dataclass
+class ResNetConfig:
+    image_size: int = 224
+    num_channels: int = 3
+    num_classes: int = None
 
 # --- Configuration ---
 @dataclass
@@ -33,6 +41,7 @@ class BaseConfig:
     patch_size: int = 16
     num_channels: int = 3
     qkv_bias: bool = True
+    num_classes: int = None
 
     # Stability
     qk_norm: bool = True
