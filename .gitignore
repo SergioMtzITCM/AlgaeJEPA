@@ -15,4 +15,4 @@ tf_env/
 *.onnx
 *.ipynb
 .vscode
-
+diagnostico_rendimiento.py

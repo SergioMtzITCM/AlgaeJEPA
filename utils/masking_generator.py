@@ -2,6 +2,8 @@ import math
 import random
 import torch
 from typing import Optional, Tuple, List, Union
+import warnings
+import numpy as np
 
 class MultiBlockMasking(object):
     """Generates masks for Context (Visible) and Target (Hidden) using Multi-Block Masking"""
@@ -13,7 +15,8 @@ class MultiBlockMasking(object):
                  max_block_scale: float = 0.33,
                  aspect_ratio_min: float = 0.75,
                  aspect_ratio_max: float = 1.33,
-                 num_tries: int = 10) -> None:
+                 num_tries: int = 10,
+                 seed: Optional[int] = None) -> None:
 
         self.height = input_size // patch_size
         self.width = input_size // patch_size
@@ -33,68 +36,104 @@ class MultiBlockMasking(object):
         self.aspect_ratio_max = aspect_ratio_max
         self.num_tries = num_tries
 
-    def _sample_block_mask(self) -> torch.Tensor:
-        """
-        Generates a boolean mask [H, W] for a single image using block sampling logic.
-        Returns 1 (True) for Target (Masked) and 0 (False) for Context (Visible).
-        """
-    
-        mask = torch.zeros((self.height, self.width), dtype = torch.int32)
-        mask_count = 0
-    
-        # Number of target patches
+        # Randon Number Generator
+        self._rng = np.random.default_rng(seed)
+
+        # Iteration Limit
         num_target_patches = int(self.num_patches * self.prediction_ratio)
-    
-        while mask_count < num_target_patches:
-            # Sampling block dimensions
-            delta = 0
-            for _ in range(self.num_tries):
-                # Sampling random scale
-                scale = random.uniform(self.min_block_scale, self.max_block_scale)
-                # Sampling random aspect ratio
-                aspect_ratio = random.uniform(self.aspect_ratio_min, self.aspect_ratio_max)
-    
-                # Calculate Height and Width on patches
-                # Area = H * W = num_patches * scale
-                # Ratio = H / W
-                # H = sqrt(Area * Ratio)
-                # W = sqrt(Area / Ratio)
-    
-                target_area = self.num_patches * scale
-    
-                h = int(math.sqrt(target_area * aspect_ratio))
-                w = int(math.sqrt(target_area / aspect_ratio))
-    
-                # Limit restriction
-                h = min(h, self.height)
-                w = min(w, self.width)
-    
-                if h * w > 0:
-                    break
-    
-            if h * w == 0:
-                continue # Error on valid dimensions generation
-    
-            # Sampling position (Top-Left)
-            # Restrict so that the block fits within the image
-            top = random.randint(0, self.height - h)
-            left = random.randint(0, self.width - w)
-    
-            # Apply block to the mask
-            # Obtain how many NEW patches are being masked (avoid counting overlaps)
-            block_mask = mask[top : top + h, left : left + w]
-            new_masked = (block_mask == 0).sum().item()
+        min_block_area = max(1, int(self.num_patches * self.min_block_scale))
+        self._max_rounds = max(50, 10 * math.ceil(num_target_patches / min_block_area))
 
-            if new_masked > 0:
-                mask[top : top + h, left : left + w] = 1
-                mask_count += new_masked
-    
-            if mask_count >= num_target_patches:
+    def _sample_block_dims_batched(self, n: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Samples [W, W] for 'n' independent blocks.
+        """
+
+        h = np.zeros(n, dtype = np.int64)
+        w = np.zeros(n, dtype = np.int64)
+        pending = np.ones(n, dtype = bool)
+ 
+        for _ in range(self.num_tries):
+            if not pending.any():
                 break
-    
-        return mask.flatten() # [N_patches]
+ 
+            idx = np.nonzero(pending)[0]
+            m = idx.shape[0]
+ 
+            scale = self._rng.uniform(self.min_block_scale, self.max_block_scale, size = m)
+            aspect_ratio = self._rng.uniform(self.aspect_ratio_min, self.aspect_ratio_max, size = m)
+            target_area = self.num_patches * scale
+ 
+            h_try = np.sqrt(target_area * aspect_ratio).astype(np.int64)
+            w_try = np.sqrt(target_area / aspect_ratio).astype(np.int64)
+            h_try = np.minimum(h_try, self.height)
+            w_try = np.minimum(w_try, self.width)
+ 
+            valid = (h_try * w_try) > 0
+            valid_idx = idx[valid]
+            h[valid_idx] = h_try[valid]
+            w[valid_idx] = w_try[valid]
+            pending[valid_idx] = False
+ 
+        if pending.any():
+            h[pending] = 1
+            w[pending] = 1
+ 
+        return h, w
 
+    def _sample_block_masks_batched(self, batch_size: int) -> np.ndarray:
+        """
+        Generates, for all batch, a boolean block masks [batch_size, num_patches].
+        Returns (1 = Target - Masked), (0 = Context - Visible).
+        """
 
+        mask = np.zeros((batch_size, self.height, self.width), dtype = np.int32)
+        mask_count = np.zeros(batch_size, dtype = np.int64)
+        num_target_patches = int(self.num_patches * self.prediction_ratio)
+ 
+        rows = np.arange(self.height)
+        cols = np.arange(self.width)
+ 
+        active = np.ones(batch_size, dtype=bool)
+        round_idx = 0
+
+        while active.any() and round_idx < self._max_rounds:
+            round_idx += 1
+            active_idx = np.nonzero(active)[0]
+            n_active = active_idx.shape[0]
+ 
+            h, w = self._sample_block_dims_batched(n_active)
+ 
+            # Sampling position (Top-Left)
+            top = self._rng.integers(0, self.height - h + 1)
+            left = self._rng.integers(0, self.width - w + 1)
+ 
+            # Generate rectangular region for each block using broadcasting
+            # [n_active, H] AND [n_active, W] -> [n_active, H, W]
+            row_sel = (rows[None, :] >= top[:, None]) & (rows[None, :] < (top + h)[:, None])
+            col_sel = (cols[None, :] >= left[:, None]) & (cols[None, :] < (left + w)[:, None])
+            block_region = row_sel[:, :, None] & col_sel[:, None, :]
+ 
+            current = mask[active_idx]
+            newly_masked = np.logical_and(block_region, current == 0).sum(axis=(1, 2))
+ 
+            mask[active_idx] = (current | block_region).astype(np.int32)
+            mask_count[active_idx] += newly_masked
+ 
+            active = mask_count < num_target_patches
+ 
+        if active.any():
+            warnings.warn(
+                f"MultiBlockMasking: safety limit of"
+                f"{self._max_rounds} rounds reached without covering num_target_patches "
+                f"across all images in the batch. Check "
+                f"min_block_scale/max_block_scale/aspect_ratio if this "
+                f"happened frequently."
+            )
+ 
+        return mask.reshape(batch_size, -1)
+
+    @torch.compiler.disable
     def __call__(self,
                  batch_size: int,
                  device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -106,35 +145,30 @@ class MultiBlockMasking(object):
 
         num_target = int(self.num_patches * self.prediction_ratio)
 
-        # Masking priorities array
-        # Shape: [B, N_patches]
-        mask_noise = torch.zeros(batch_size, self.num_patches, dtype = torch.float32)
+        # Block Masks for all batch.
+        block_mask = self._sample_block_masks_batched(batch_size) # [B, N_patches], int32 (0/1)
 
-        # Generate mask per block for each image in the batch
-        for i in range(batch_size):
-            # Generate the boolean mask
-            block_mask = self._sample_block_mask() # [N_patches]
+        # Small Random Noise
+        random_noise = self._rng.random((batch_size, self.num_patches)).astype(np.float32) * 0.1
 
-            # Generate small random noise 
-            random_noise = torch.rand(self.num_patches) * 0.1
-
-            # Add the block mask to the noise.
-            # The patches inside the block will have value > 1.0
-            # The patches out of the block will have value < 0.1
-            mask_noise[i] = block_mask.float() + random_noise
+        # Masking Priorities Array
+        # The patches covered will be in [1.0, 1.1]
+        # The patches uncovered will be in [0.0, 0.1]
+        mask_noise_np = block_mask.astype(np.float32) + random_noise
+        mask_noise = torch.from_numpy(mask_noise_np)
 
         # Separate Target and Context using argsort
         # First values will be the Target
         ids_shuffle = torch.argsort(mask_noise, dim = 1, descending = True)
-
+ 
         # Target (Masked blocks)
         target_idx = ids_shuffle[:, :num_target]
-
+ 
         # Context (Rest visible)
         context_idx = ids_shuffle[:, num_target:]
-
+ 
         # Sort indices again so patches appear in spatial order
         context_idx, _ = torch.sort(context_idx, dim = 1)
         target_idx, _ = torch.sort(target_idx, dim = 1)
-
+ 
         return context_idx, target_idx

@@ -96,7 +96,7 @@ class AlgaeJEPA_Trainer:
 
             for batch in pbar:
 
-                batch = batch.to(self.device)
+                batch = batch.to(self.device, non_blocking = True)
                 self.optimizer.zero_grad()
 
                 # Forward Pass (AMP)
@@ -115,14 +115,18 @@ class AlgaeJEPA_Trainer:
                 self.scaler.update()
 
                 # Update Metrics
-                epoch_total_loss += total_loss.item()
-                epoch_embed_loss += embed_loss.item()
-                epoch_sigreg_loss += sigreg_loss.item()
+                total_loss_val = total_loss.item()
+                embed_loss_val = embed_loss.item()
+                sigreg_loss_val = sigreg_loss.item()
+
+                epoch_total_loss += total_loss_val
+                epoch_embed_loss += embed_loss_val
+                epoch_sigreg_loss += sigreg_loss_val
 
                 pbar.set_postfix({
-                    "Total_Loss": f"{total_loss.item():.4f}",
-                    "Embed_Loss": f"{embed_loss.item():.4f}",
-                    "SIGReg_Loss": f"{sigreg_loss.item():.4f}"
+                    "Total_Loss": f"{total_loss_val:.4f}",
+                    "Embed_Loss": f"{embed_loss_val:.4f}",
+                    "SIGReg_Loss": f"{sigreg_loss_val:.4f}"
                 })
 
                 
@@ -175,6 +179,15 @@ class AlgaeJEPA_Trainer:
 
         embeddings_tensor = torch.cat(all_embeddings, dim = 0)
 
+        # Inverse mapping, numeric -> categorical (string)
+        dataset = self.test_loader.dataset
+
+        if hasattr(dataset, "label_map") and dataset.label_map:
+            inv_map = {v: k for k, v in dataset.label_map.items()}
+            categorical_labels = [str(inv_map[lbl]) for lbl in all_labels]
+        else:
+            categorical_labels = [str(lbl) for lbl in all_labels]
+
         try:
             fig, ax = plt.subplots(figsize = (12, 12))
             embeds_np = embeddings_tensor.numpy()
@@ -183,23 +196,23 @@ class AlgaeJEPA_Trainer:
             reducer = umap.UMAP(n_components = 2, random_state = 32, n_jobs = 3)
             proj = reducer.fit_transform(embeds_np)
 
-            if all_labels:
+            if categorical_labels:
                 sns.scatterplot(
                     x = proj[:, 0], y = proj[:, 1], 
-                    hue = all_labels, 
+                    hue = categorical_labels, 
                     palette = "husl",
                     s = 40, 
                     edgecolor = "white", linewidth = 0.3, alpha = 0.85, 
                     ax = ax
                 )
                 
-                ax.legend(title = "Clases", bbox_to_anchor = (1.05, 1), loc = 'upper left', frameon = True)
+                ax.legend(title = "Clases", bbox_to_anchor = (1.05, 1), loc = 'upper left', frameon = True, ncol = 1)
             else:
                 sns.scatterplot(x = proj[:, 0], y = proj[:, 1], color = "#34495e", 
                                 s = 40, alpha = 0.7, edgecolor = "none", ax = ax)
 
             
-            ax.set_title(f"Latent Space Projection(UMAP) - Epoch {epoch}", fontweight="bold", pad=15)
+            ax.set_title(f"Latent Space Projection (UMAP) - Epoch {epoch}", fontweight="bold", pad=15)
             ax.set_xlabel("UMAP Dim 1", fontweight="bold")
             ax.set_ylabel("UMAP Dim 2", fontweight="bold")
 
@@ -430,8 +443,8 @@ class KD_Trainer:
             pbar = tqdm(self.train_dataloader, desc = f"Epoch {epoch}/{self.epochs}", unit = "batch")
 
             for batch in pbar:
-                img_teacher = batch[0].to(self.device)
-                img_student = batch[1].to(self.device)
+                img_teacher = batch[0].to(self.device, non_blocking = True)
+                img_student = batch[1].to(self.device, non_blocking = True)
 
                 self.optimizer.zero_grad()
 
@@ -521,6 +534,15 @@ class KD_Trainer:
 
         embeddings_tensor = torch.cat(all_embeddings, dim = 0)
 
+        # Inverse mapping, numeric -> categorical (string)
+        dataset = self.test_dataloader.dataset
+
+        if hasattr(dataset, "label_map") and dataset.label_map:
+            inv_map = {v: k for k, v in dataset.label_map.items()}
+            categorical_labels = [str(inv_map[lbl]) for lbl in all_labels]
+        else:
+            categorical_labels = [str(lbl) for lbl in all_labels]
+
         try:
             fig, ax = plt.subplots(figsize = (12, 12))
             embeds_np = embeddings_tensor.numpy()
@@ -529,10 +551,10 @@ class KD_Trainer:
             reducer = umap.UMAP(n_components = 2, random_state = 32, n_jobs = 3)
             proj = reducer.fit_transform(embeds_np)
 
-            if all_labels:
+            if categorical_labels:
                 sns.scatterplot(
                     x = proj[:, 0], y = proj[:, 1], 
-                    hue = all_labels, 
+                    hue = categorical_labels, 
                     palette = "husl", 
                     s = 40, 
                     edgecolor = "white", linewidth = 0.3, alpha = 0.85, 

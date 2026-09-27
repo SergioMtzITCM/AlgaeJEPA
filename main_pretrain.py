@@ -26,11 +26,12 @@ def main():
     )
 
     
-    # IJEPA Model
+    # Algae-JEPA Model
     algae_jepa_model = AlgaeJepa(
         config = config,
         loss_type = "mse",
-        lambda_sigreg = 0.1
+        lambda_sigreg = 0.1,
+        sigreg_num_slices = 1024
     ).to(device)
     algae_jepa_model = torch.compile(algae_jepa_model)
 

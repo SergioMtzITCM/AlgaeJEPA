@@ -17,7 +17,8 @@ class AlgaeJepa(nn.Module):
     def __init__(self,
                  config: BaseConfig,
                  loss_type: str = "mse",
-                 lambda_sigreg: float = 0.1) -> None:
+                 lambda_sigreg: float = 0.1,
+                 sigreg_num_slices: int = 1024) -> None:
         super().__init__()
 
         self.config = config
@@ -32,7 +33,7 @@ class AlgaeJepa(nn.Module):
             prediction_ratio = config.prediction_ratio
         )
 
-        self.sigreg = SIGReg(knots = 17, t_max = 5.0, num_slices = 1024)
+        self.sigreg = SIGReg(knots = 17, t_max = 5.0, num_slices = sigreg_num_slices)
         self.embedding_prediction_criterion = EmbeddingLoss(loss_type)
         self.lambda_sigreg = lambda_sigreg
 

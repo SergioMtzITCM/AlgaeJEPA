@@ -84,25 +84,39 @@ class SelfAttention(nn.Module):
         cos, sin = rope_embed
         q, k = apply_rotary_pos_embed(q, k, cos, sin)
 
-        # Attention: (Q @ K.T) * scale
-        attn = (q @ k.transpose(-2, -1)) * self.scale
+        # Manual Attention Only for Visualization
+        if output_attentions:
 
-        # Causal Mask (For Pre-Training NEPA)
-        if self.is_causal:
-            # Make Upper Triangular Matrix with -inf
-            # N includes CLS token. If N = Patches + 1, the mask covers all
-            mask = torch.triu(torch.full((N, N), float("-inf"), device = x_query.device), diagonal = 1)
-            attn = attn + mask.unsqueeze(0).unsqueeze(0) # Broadcasting to Batch and Heads
+            # Attention: (Q @ K.T) * scale
+            attn = (q @ k.transpose(-2, -1)) * self.scale
 
-        attn = attn.softmax(dim = -1)
-        attn = self.attn_drop(attn)
+            # Causal Mask (For Pre-Training NEPA)
+            if self.is_causal:
+                # Make Upper Triangular Matrix with -inf
+                # N includes CLS token. If N = Patches + 1, the mask covers all
+                mask = torch.triu(torch.full((N, N), float("-inf"), device = x_query.device), diagonal = 1)
+                attn = attn + mask.unsqueeze(0).unsqueeze(0) # Broadcasting to Batch and Heads
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+            attn = attn.softmax(dim = -1)
+            attn = self.attn_drop(attn)
+
+            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+            x = self.proj(x)
+            x = self.proj_drop(x)
+
+            return x, attn
+
+        # Optimized Attention
+        x = F.scaled_dot_product_attention(
+            q, k, v,
+            dropout_p = self.attn_drop if self.training else 0.0,
+            is_causal = self.is_causal,
+            scale = self.scale
+        )
+
+        x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-
-        if output_attentions:
-            return x, attn
 
         return x, None
 

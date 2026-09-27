@@ -66,11 +66,12 @@ class CrossAttention(nn.Module):
         k, _ = apply_rotary_pos_embed(k, k, cos_k, sin_k) # Only rotate k
 
         # Attention: (Q @ K.T) * scale
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim = -1)
-        attn = self.attn_drop(attn)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N_q, C)
+        x = F.scaled_dot_product_attention(
+            q, k, v,
+            dropout_p = self.attn_drop.p if self.training else 0.0,
+            scale = self.scale
+        )
+        x = x.transpose(1, 2).reshape(B, N_q, C)
         x = self.proj(x)
         x = self.proj_drop(x)
 
@@ -141,7 +142,7 @@ class PredictorLayer(nn.Module):
 
 class PredictorModel(nn.Module):
     def __init__(self,
-                 config: BaseConfig) -> torch.Tensor:
+                 config: BaseConfig) -> None:
         super().__init__()
 
         self.config = config
