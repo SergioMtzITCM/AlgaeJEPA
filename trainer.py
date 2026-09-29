@@ -89,10 +89,7 @@ class AlgaeJEPA_Trainer:
         self.animation_duration = 0.3        # <-- NUEVO
 
         # AMP
-        if amp_dtype is not None:
-            self.amp_dtype = amp_dtype
-
-        elif device.type == "cuda":
+        if device.type == "cuda":
             self.amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
         else:
