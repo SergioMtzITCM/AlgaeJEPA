@@ -20,7 +20,7 @@ class AlgaeJepa(nn.Module):
                  lambda_sigreg: float = 0.1,
                  sigreg_num_slices: int = 1024,
                  sigreg_knots: int = 17,
-                 sigreg_t_max: float 3.0,
+                 sigreg_t_max: float = 3.0,
                  seed: Optional[int] = None) -> None:
         super().__init__()
 
