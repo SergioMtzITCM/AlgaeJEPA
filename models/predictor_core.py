@@ -153,7 +153,7 @@ class PredictorModel(nn.Module):
 
         # Predictor Blocks
         # Stochastic Depth Decay Rule
-        dpr = [x.item() for x in torch.linspace(0, config.drop_path_prob, config.num_hidden_layers)]
+        dpr = [x.item() for x in torch.linspace(0, config.drop_path_prob, self.num_hidden_layers)]
 
         self.layers = nn.ModuleList([
             PredictorLayer(config, drop_path_radio = dpr[i])

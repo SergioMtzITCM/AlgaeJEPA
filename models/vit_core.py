@@ -109,7 +109,7 @@ class SelfAttention(nn.Module):
         # Optimized Attention
         x = F.scaled_dot_product_attention(
             q, k, v,
-            dropout_p = self.attn_drop if self.training else 0.0,
+            dropout_p = self.attn_drop.p if self.training else 0.0,
             is_causal = self.is_causal,
             scale = self.scale
         )

@@ -61,7 +61,7 @@ def main():
                                                                         BETA_2), weight_decay = WEIGHT_DECAY)
     warmup = LinearLR(optimizer, start_factor = START_FACTOR, total_iters = WARMUP_EPOCHS)
     cosine = CosineAnnealingLR(optimizer, T_max = (EPOCHS - WARMUP_EPOCHS), eta_min = MIN_LR)
-    scheduler = SequentialLR(optimizer, schedulers = [warmup, cosine], milestones = [5])
+    scheduler = SequentialLR(optimizer, schedulers = [warmup, cosine], milestones = [WARMUP_EPOCHS])
 
     # Trainer
     trainer = AlgaeJEPA_Trainer(

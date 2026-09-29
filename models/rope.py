@@ -80,9 +80,13 @@ class ViTRoPE(nn.Module):
         self.head_dim = config.hidden_size // config.num_attention_heads
         self.base = config.rope_theta
 
+        if self.head_dim % 4 != 0:
+            raise ValueError(f"'head_dim' must be divisible by 4 for RoPE 2D (head_dim = {self.head_dim})")
+
         # Pre-compute inverse frequencies (Theta)
         # shape: [Head_Dim / 2]
-        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.head_dim, 2).float() / self.head_dim))
+        axis_dim = self.head_dim // 2
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, axis_dim, 2).float() / axis_dim))
         self.register_buffer("inv_freq", inv_freq, persistent = False)
 
         # Number of Patches
@@ -103,6 +107,9 @@ class ViTRoPE(nn.Module):
         angles = 2 * math.pi * patch_coords[:, :, None] * self.inv_freq[None, None, :]
         # Flatten: [Total_Patches, Head_Dim]
         angles = angles.flatten(1, 2)
+
+        # Duplicate: [Total_Patches, Head_Dim] -> layout [h, w, h, w]
+        angles = angles.tile(2)
 
         cos_full = torch.cos(angles)
         sin_full = torch.sin(angles)

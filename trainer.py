@@ -1,15 +1,19 @@
 import os
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
+
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import matplotlib
 import seaborn as sns
 matplotlib.use("Agg")
+
 from typing import Optional, Union
+
 from sklearn.metrics import accuracy_score, f1_score
 
 from models.algae_jepa import AlgaeJepa
@@ -38,6 +42,31 @@ sns.set_theme(
     }
 )
 
+def qualitative_palette(n: int) -> list:
+    """
+    Adaptive Categorical Palette for UMAP Graphics.
+    """
+ 
+    if n <= 10:
+        return sns.color_palette("colorblind", n)
+    if n <= 12:
+        return sns.color_palette("Paired", n)
+    if n <= 20:
+        return sns.color_palette("tab20", n)
+ 
+    base = sns.color_palette("husl", n)
+    step = max(1, round(n * 0.381966))  
+    while math.gcd(step, n) != 1:
+        step += 1
+    order = [(i * step) % n for i in range(n)]
+    return [base[i] for i in order]
+ 
+def _sort_key_numeric_aware(label: str):
+    try:
+        return (0, int(label))
+    except (TypeError, ValueError):
+        return (1, str(label))
+
 class AlgaeJEPA_Trainer:
     def __init__(self,
                  model: AlgaeJepa,
@@ -60,16 +89,31 @@ class AlgaeJEPA_Trainer:
         self.animation_duration = 0.3        # <-- NUEVO
 
         # AMP
-        self.scaler = torch.amp.GradScaler(device = device)
+        if amp_dtype is not None:
+            self.amp_dtype = amp_dtype
+
+        elif device.type == "cuda":
+            self.amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+
+        else:
+            self.amp_dtype = torch.bfloat16
+
+
+        self.scaler = torch.amp.GradScaler(
+            device = device.type if isinstance(device, torch.device) else device,
+            enabled = (self.amp_dtype == torch.float16)
+        )
 
         # Metrics Traking
         self.history = {
             "total_loss": [],
             "embed_loss": [],
-            "sigreg_loss": []
+            "sigreg_loss": [],
+            "grad_norm": []
         }
 
         self.best_loss = float("inf")
+        self._last_batch = None
 
         # Directories
         self.checkpoint_dir = os.path.join(save_dir, "checkpoints")
@@ -94,21 +138,51 @@ class AlgaeJEPA_Trainer:
 
             pbar = tqdm(self.train_loader, desc = f"Epoch {epoch}/{self.epochs}", unit = "batch")
 
+            epoch_grad_norm = 0.0
+            n_skipped = 0
+            n_batches = 0
+
             for batch in pbar:
 
                 batch = batch.to(self.device, non_blocking = True)
-                self.optimizer.zero_grad()
+                self._last_batch = batch
+                self.optimizer.zero_grad(set_to_none = True)
 
                 # Forward Pass (AMP)
-                with torch.autocast(device_type = self.device.type):
+                with torch.autocast(device_type = self.device.type, dtype = self.amp_dtype):
                     embed_loss, sigreg_loss, total_loss = self.model(batch)
+
+                # --- Numeric Stability Guard (1/2) ---
+                # If forward produces inf/nan, backward will not be executed
+                if not torch.isfinite(total_loss):
+                    n_skipped += 1
+                    tqdm.write(
+                        f"[Epoch {epoch}] WARNING: 'total_loss' non finite "
+                        f"({total_loss.item()!r}); embed_loss={embed_loss.item()!r} "
+                        f"sigreg_loss={sigreg_loss.item()!r} -> batch discarded."
+                    )
+                    self._log_instability(epoch, reason = "loss_not_finite")
+                    continue
 
                 # Scale, Backward Pass and Optimization - AMP
                 self.scaler.scale(total_loss).backward()
 
                 # Gradient Clipping
                 self.scaler.unscale_(self.optimizer)
-                nn.utils.clip_grad_norm_(self.model.parameters(), max_norm = 1.0)
+                grad_norm = nn.utils.clip_grad_norm_(self.model.parameters(), max_norm = 1.0)
+
+                # --- Numeric Stability Guard (2/2) ---
+                if not torch.isfinite(grad_norm):
+                    n_skipped += 1
+                    tqdm.write(
+                        f"[Epoch {epoch}] AVISO: gradient norm non finite "
+                        f"({grad_norm.item()!r}) -> optimizer step skipped."
+                    )
+                    self._log_instability(epoch, reason = "grad_not_finite")
+                    self.optimizer.zero_grad(set_to_none = True)
+                    if self.scaler.is_enabled():
+                        self.scaler.update()
+                    continue
 
                 # Optimizer step using the scaler
                 self.scaler.step(self.optimizer)
@@ -118,29 +192,42 @@ class AlgaeJEPA_Trainer:
                 total_loss_val = total_loss.item()
                 embed_loss_val = embed_loss.item()
                 sigreg_loss_val = sigreg_loss.item()
+                grad_norm_val = grad_norm.item()
 
                 epoch_total_loss += total_loss_val
                 epoch_embed_loss += embed_loss_val
                 epoch_sigreg_loss += sigreg_loss_val
+                epoch_grad_norm += grad_norm_val
+                n_batches += 1
 
                 pbar.set_postfix({
                     "Total_Loss": f"{total_loss_val:.4f}",
                     "Embed_Loss": f"{embed_loss_val:.4f}",
-                    "SIGReg_Loss": f"{sigreg_loss_val:.4f}"
+                    "SIGReg_Loss": f"{sigreg_loss_val:.4f}",
+                    "GradNorm": f"{grad_norm_val:.3f}"
                 })
 
                 
             # Update the Scheduler
             self.lr_scheduler.step()
 
+            if n_skipped > 0:
+                tqdm.write(f"[Epoch {epoch}] {n_skipped} batch(es) skipped(s) for numerical inestability.")
+
             # Average the Metrics
-            avg_total = epoch_total_loss / len(self.train_loader)
-            avg_embed = epoch_embed_loss / len(self.train_loader)
-            avg_sigreg = epoch_sigreg_loss / len(self.train_loader)
+            denom = max(n_batches, 1)
+            avg_total = epoch_total_loss / denom
+            avg_embed = epoch_embed_loss / denom
+            avg_sigreg = epoch_sigreg_loss / denom
+            avg_grad_norm = epoch_grad_norm / denom
 
             self.history["total_loss"].append(avg_total)
             self.history["embed_loss"].append(avg_embed)
             self.history["sigreg_loss"].append(avg_sigreg)
+            self.history["grad_norm"].append(avg_grad_norm)
+
+            # Health Diagnosis
+            self._log_epoch_diagnostics(epoch)
 
             # Save Checkpoints
             self._save_checkpoint(epoch, avg_total, is_best = (avg_total < self.best_loss))
@@ -157,6 +244,62 @@ class AlgaeJEPA_Trainer:
         # Make GIF Animation
         self._create_animation()
         print("Pre-Training Completed Successfully")
+
+    def _unwrap_model(self) -> AlgaeJepa:
+        """Returns real module under torch.compile."""
+        return self.model._orig_mod if hasattr(self.model, "_orig_mod") else self.model
+
+    def _log_instability(self, epoch: int, reason: str) -> None:
+        """
+        It is invoked the first time a non-finite value appears during an epoch, 
+        dumps representation health metrics and saves an emergency checkpoint.
+        """
+ 
+        try:
+            unwrapped = self._unwrap_model()
+            batch = self._last_batch
+            if batch is not None:
+                diag = unwrapped.compute_diagnostics(batch)
+                tqdm.write(f"[Epoch {epoch}] Diagnostico ({reason}): " + ", ".join(
+                    f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}"
+                    for k, v in diag.items()
+                ))
+        except Exception as e:
+            tqdm.write(f"[Epoch {epoch}] No se pudo calcular el diagnostico de inestabilidad: {e}")
+ 
+        try:
+            emergency_path = os.path.join(self.checkpoint_dir, f"unstable_epoch_{epoch}.pth")
+            if not os.path.exists(emergency_path):
+                unwrapped = self._unwrap_model()
+                torch.save({
+                    "epoch": epoch,
+                    "reason": reason,
+                    "model_state_dict": unwrapped.state_dict(),
+                    "optimizer_state_dict": self.optimizer.state_dict(),
+                    "history": self.history,
+                }, emergency_path)
+                tqdm.write(f"[Epoch {epoch}] Emergency checkpoint saved in en: {emergency_path}")
+        except Exception as e:
+            tqdm.write(f"[Epoch {epoch}] Emergency checkpoint could not be saved: {e}")
+
+    def _log_epoch_diagnostics(self, epoch: int) -> None:
+        """
+        Periodic diagnosis (once per epoch) over last training batch.
+        """
+ 
+        if self._last_batch is None:
+            return
+        try:
+            unwrapped = self._unwrap_model()
+            diag = unwrapped.compute_diagnostics(self._last_batch)
+            tqdm.write(
+                f"[Epoch {epoch}] explained_var={diag['explained_variance']:.4f} "
+                f"eff_rank={diag['effective_rank']:.1f}/{unwrapped.config.hidden_size} "
+                f"sigreg={diag['sigreg']:.3f} target_std={diag['target_std_mean']:.3f} "
+                f"(min={diag['target_std_min']:.3f}) act_out_max={diag['act_out_max']:.1f}"
+            )
+        except Exception as e:
+            tqdm.write(f"[Epoch {epoch}] Periodic Diagnosis could not be calculated: {e}")
 
     @torch.no_grad()
     def _visualize_latent_space(self,
@@ -197,10 +340,14 @@ class AlgaeJEPA_Trainer:
             proj = reducer.fit_transform(embeds_np)
 
             if categorical_labels:
+                unique_labels = sorted(set(categorical_labels), key = _sort_key_numeric_aware)
+                palette_map = dict(zip(unique_labels, qualitative_palette(len(unique_labels))))
+
                 sns.scatterplot(
                     x = proj[:, 0], y = proj[:, 1], 
                     hue = categorical_labels, 
-                    palette = "husl",
+                    hue_order = unique_labels,
+                    palette = palette_map,
                     s = 40, 
                     edgecolor = "white", linewidth = 0.3, alpha = 0.85, 
                     ax = ax
@@ -253,20 +400,34 @@ class AlgaeJEPA_Trainer:
         plt.savefig(save_path, dpi = 300, bbox_inches = "tight")
         plt.close(fig)
 
+        if self.history.get("grad_norm"):
+            fig2, ax2 = plt.subplots(figsize = (12, 5))
+            sns.lineplot(x = epochs_range, y = self.history["grad_norm"], color = "black", linewidth = 2, ax = ax2)
+            ax2.set_yscale("log")
+            ax2.set_xlabel("Epochs", fontweight = "bold")
+            ax2.set_ylabel("Grad Norm (post-clip, log)", fontweight = "bold")
+            ax2.set_title("Global Gradient Norm", fontweight = "bold", pad = 15)
+            sns.despine(trim = True)
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.losses_dir, "grad_norm.png"), dpi = 300, bbox_inches = "tight")
+            plt.close(fig2)
+
     def _save_checkpoint(self,
                          epoch: int,
                          current_loss: float,
                          is_best: bool) -> None:
         """Saves a Model Checkpoint"""
 
+        unwrapped = self._unwrap_model()
+
         checkpoint = {
             "epoch": epoch,
-            "model_state_dict": self.model.state_dict(),
+            "model_state_dict": unwrapped.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "lr_scheduler_state_dict": self.lr_scheduler.state_dict(),
             "scaler_state_dict": self.scaler.state_dict(),
             "loss": current_loss,
-            "config": self.model.config
+            "config": unwrapped.config
         }
 
         # Save Latest
@@ -278,6 +439,7 @@ class AlgaeJEPA_Trainer:
             best_path = os.path.join(self.checkpoint_dir, "best_model.pth")
             torch.save(checkpoint, best_path)
             print(f"-> New Best Model Saved")
+
 
     def _create_animation(self) -> None:
         try:
@@ -502,6 +664,10 @@ class KD_Trainer:
         self._create_animation()
         print("Knowledge Distillation Completed Successfully")
 
+    def _unwrap_model(self) -> AlgaeJepa:
+        """Returns real module under torch.compile."""
+        return self.model._orig_mod if hasattr(self.model, "_orig_mod") else self.model
+
     @torch.no_grad()
     def _visualize_latent_space(self, epoch: int) -> None:
         """Extracts Student's Test Embeddings and plots its distribution."""
@@ -552,10 +718,15 @@ class KD_Trainer:
             proj = reducer.fit_transform(embeds_np)
 
             if categorical_labels:
+                unique_labels = sorted(set(categorical_labels), key = _sort_key_numeric_aware)
+                palette_map = dict(zip(unique_labels, qualitative_palette(len(unique_labels))))
+
+
                 sns.scatterplot(
                     x = proj[:, 0], y = proj[:, 1], 
                     hue = categorical_labels, 
-                    palette = "husl", 
+                    hue_order = unique_labels,
+                    palette = palette_map, 
                     s = 40, 
                     edgecolor = "white", linewidth = 0.3, alpha = 0.85, 
                     ax = ax
@@ -606,15 +777,17 @@ class KD_Trainer:
     def _save_checkpoint(self, epoch: int, current_loss: float, is_best: bool) -> None:
         """Saves a Model Checkpoint"""
         
+        unwrapped = self._unwrap_model()
+
         checkpoint = {
             "epoch": epoch,
-            "student_state_dict": self.student.state_dict(),
+            "student_state_dict": unwrapped.state_dict(),
             "projector_state_dict": self.projector.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "lr_scheduler_state_dict": self.lr_scheduler.state_dict(),
             "scaler_state_dict": self.scaler.state_dict(),
             "loss": current_loss,
-            "config": self.student.config
+            "config": unwrapped.config
         }
 
         last_path = os.path.join(self.checkpoint_dir, "latest_student.pth")

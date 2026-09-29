@@ -10,40 +10,56 @@ class SIGReg(nn.Module):
 
         super().__init__()
 
+        if knots < 2:
+            raise ValueError(f"'knots' must be >= 2 (received {knots})")
+        if t_max <= 0:
+            raise ValueError(f"'t_max' must be > 0 (received {t_max})")
+        if num_slices < 1:
+            raise ValueError(f"'num_slices' must be >= 1 (received {num_slices})")
+
         self.num_slices = num_slices
 
-        t = torch.linspace(-t_max, t_max, knots, dtype = torch.float32)
+        # [0, t_max]
+        t = torch.linspace(0.0, t_max, knots, dtype = torch.float32)
+        dt = t_max / (knots - 1)
+
+        # N(0, 1) ECF and Gaussian Window w(t) = exp(-t²/2)
         phi = torch.exp(-0.5 * t.square()) 
 
-        self.register_buffer("t", t)
-        self.register_buffer("phi", phi)
+        # Trapezoid Weights over [0, t_max]
+        quad_weights = torch.full((knots,), 2.0 * dt, dtype = torch.float32)
+        quad_weights[0] = dt
+        quad_weights[-1] = dt
+
+        self.register_buffer("t", t, persistent = False)
+        self.register_buffer("phi", phi, persistent = False)
+        self.register_buffer("weights", quad_weights * phi, persistent = False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x: Tensor of shape (..., D)
         """
 
-        flat = x.reshape(-1, x.size(-1)) # (N, D), N = B * N_p
-        N = flat.size(0)
+        with torch.autocast(device_type = x.device.type, enabled = False):
 
-        # Random Unit Projections (Cramer-Wold)
-        A = torch.rand(flat.size(-1), self.num_slices, device = flat.device, dtype = torch.float32)
-        A = A / A.norm(p = 2, dim = 0)
-        A = A.to(flat.dtype)
+            flat = x.reshape(-1, x.size(-1)).float() # (N, D), N = B * N_p
+            N = flat.size(0)
 
-        t = self.t.to(flat.dtype)
-        phi = self.phi.to(flat.dtype)
+            # Random Unit Projections (Cramer-Wold)
+            A = torch.randn(flat.size(-1), self.num_slices, device = flat.device, dtype = torch.float32)
+            A = A / A.norm(p = 2, dim = 0, keepdim = True)
 
-        # Empirical Characteristic Function (Euler)
-        x_t = (flat @ A).unsqueeze(-1) * t # (N, num_slices, knots)
-        ecf_real = x_t.cos().mean(0) # Average over 'N' samples
-        ecf_imag = x_t.sin().mean(0)
+            
+            # Empirical Characteristic Function (Euler) and Projections
+            proj = flat @ A                                   # (N, num_slices)
+            x_t = proj.unsqueeze(-1) * self.t                 # (N, num_slices, knots)
+            ecf_real = x_t.cos().mean(dim = 0)                # (num_slices, knots)
+            ecf_imag = x_t.sin().mean(dim = 0)
 
-        # L2 Distance Weighted by Gaussian Window 'phi(t)' integrated in 't' (Epps-Pulley)
-        err = (ecf_real - phi).square() + ecf_imag.square()
-        err = err * phi
-        stat = torch.trapezoid(err, t, dim = -1) * N # (num_slices,)
+            # L2 Distance Weighted by Gaussian Window 'phi(t)' integrated in 't' (Epps-Pulley)
+            err = (ecf_real - self.phi).square() + ecf_imag.square()
+            stat = (err * self.weights).sum(dim = -1) * N     # (num_slices,)
 
-        return stat.mean() # Average over random projections
+            return stat.mean() # Average over random projections
 
 
