@@ -176,7 +176,8 @@ class AlgaeJepa(nn.Module):
         predicted_target_embeddings = self.predictor(
             context_embeddings,
             context_cos_sin,
-            target_cos_sin
+            target_cos_sin,
+            target_idx = target_idx
         )
 
         # Compute the Target Embedding Prediction Loss
