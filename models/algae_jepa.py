@@ -256,7 +256,7 @@ class AlgaeJepa(nn.Module):
                 context_idx = context_idx,
                 target_idx = target_idx
             )
-            predicted = self.predictor(context_embeddings, context_cos_sin, target_cos_sin)
+            predicted = self.predictor(context_embeddings, context_cos_sin, target_cos_sin, target_idx = target_idx)
  
             metrics: Dict[str, Union[float, str]] = {}
  
