@@ -23,7 +23,7 @@ def main():
         patch_size = 16,
         num_channels = 3,
         prediction_ratio = 0.65,
-        num_predictor_layers =  4
+        num_predictor_layers =  4,
         use_abs_pos = True
     )
 

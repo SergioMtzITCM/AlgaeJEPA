@@ -5,6 +5,8 @@ from typing import Optional, Tuple, List, Union
 import warnings
 import numpy as np
 
+import copy
+
 class MultiBlockMasking(object):
     """Generates masks for Context (Visible) and Target (Hidden) using Multi-Block Masking"""
     def __init__(self,

@@ -142,7 +142,7 @@ class AlgaeJepa(nn.Module):
 
         # Context flow (only visible patches)
         context_embeddings_raw = self._gather_tokens(all_patch_embeddings, context_idx)
-        context_embeddings = self.encoder.forward_embeddings(context_embedings_raw, context_cos_sin)
+        context_embeddings = self.encoder.forward_embeddings(context_embeddings_raw, context_cos_sin)
 
         # Target flow (forward target patches for global context and then extract them)
         target_embeddings = self.get_target_embeddings_from_patches(
@@ -215,7 +215,7 @@ class AlgaeJepa(nn.Module):
             target_abs_max, act_in_max, act_out_max: Maximum magnitudes. fp16 overflows at 65,504.
         """
 
-         device = x_input.device
+        device = x_input.device
         cpu_rng_state = torch.get_rng_state()
         cuda_rng_state = torch.cuda.get_rng_state(device) if device.type == "cuda" else None
         mask_rng_state = self.mask_generator.get_rng_state()

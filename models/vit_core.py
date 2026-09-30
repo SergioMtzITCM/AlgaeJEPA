@@ -44,7 +44,6 @@ class SelfAttention(nn.Module):
         self.num_heads = config.num_attention_heads
         self.head_dim = config.hidden_size // config.num_attention_heads
         self.scale = self.head_dim ** -0.5
-        self.is_causal = config.is_causal
 
         self.q = nn.Linear(config.hidden_size, config.hidden_size, bias = config.qkv_bias)
         self.k = nn.Linear(config.hidden_size, config.hidden_size, bias = config.qkv_bias)
@@ -89,14 +88,6 @@ class SelfAttention(nn.Module):
 
             # Attention: (Q @ K.T) * scale
             attn = (q @ k.transpose(-2, -1)) * self.scale
-
-            # Causal Mask (For Pre-Training NEPA)
-            if self.is_causal:
-                # Make Upper Triangular Matrix with -inf
-                # N includes CLS token. If N = Patches + 1, the mask covers all
-                mask = torch.triu(torch.full((N, N), float("-inf"), device = x_query.device), diagonal = 1)
-                attn = attn + mask.unsqueeze(0).unsqueeze(0) # Broadcasting to Batch and Heads
-
             attn = attn.softmax(dim = -1)
             attn = self.attn_drop(attn)
 
@@ -110,7 +101,6 @@ class SelfAttention(nn.Module):
         x = F.scaled_dot_product_attention(
             q, k, v,
             dropout_p = self.attn_drop.p if self.training else 0.0,
-            is_causal = self.is_causal,
             scale = self.scale
         )
 

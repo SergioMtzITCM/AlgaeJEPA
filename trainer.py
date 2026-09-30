@@ -262,7 +262,7 @@ class AlgaeJEPA_Trainer:
                     for k, v in diag.items()
                 ))
         except Exception as e:
-            tqdm.write(f"[Epoch {epoch}] No se pudo calcular el diagnostico de inestabilidad: {e}")
+            tqdm.write(f"[Epoch {epoch}] Inestability Diagnosis could not be calculeted: {e}")
  
         try:
             emergency_path = os.path.join(self.checkpoint_dir, f"unstable_epoch_{epoch}.pth")

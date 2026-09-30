@@ -45,7 +45,6 @@ class CrossAttention(nn.Module):
         self.num_heads = config.num_attention_heads
         self.head_dim = config.hidden_size // config.num_attention_heads
         self.scale = self.head_dim ** -0.5
-        self.is_causal = config.is_causal
 
         self.q = nn.Linear(config.hidden_size, config.hidden_size, bias = config.qkv_bias)
         self.k = nn.Linear(config.hidden_size, config.hidden_size, bias = config.qkv_bias)
@@ -174,8 +173,8 @@ class PredictorModel(nn.Module):
                  config: BaseConfig) -> None:
         super().__init__()
 
-        if num_layers < 1:
-            raise ValueError(f"'num_layers' must be >= 1 (received {config.num_predictor_layers})")
+        if config.num_predictor_layers < 1:
+            raise ValueError(f"'num_predictor_layers' must be >= 1 (received {config.num_predictor_layers})")
 
         self.config = config
 
@@ -235,7 +234,7 @@ class PredictorModel(nn.Module):
         mask_tokens = self.mask_token.expand(B, N_tgt, -1)
 
         # Absolute position of each target (optional)
-        if self.use_abs_pos:
+        if self.config.use_abs_pos:
             if target_idx is None:
                 raise ValueError("'target_idx' is required when the predictor is built with use_abs_pos = True")
             if tuple(target_idx.shape) != (B, N_tgt):
