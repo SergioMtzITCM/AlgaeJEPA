@@ -287,7 +287,7 @@ class ViTModel(nn.Module):
 
     def get_output_size(self) -> Tuple:
         n_patch = self.config.image_size // self.config.patch_size
-        return (n_patch * 2, self.config.hidden_size)
+        return (n_patch ** 2, self.config.hidden_size)
 
     def forward(self,
                 pixel_values: torch.Tensor,

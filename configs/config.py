@@ -13,7 +13,7 @@ class MicroViTConfig:
 
 @dataclass
 class MobileNetConfig:
-    model: str = "V2",
+    model: str = "V2"
     image_size: int = 224
     num_channels: int = 3
     num_classes: int = None
@@ -50,7 +50,6 @@ class BaseConfig:
     layerscale_value: float = 1e-5
     drop_path_prob: float = 0.0 # Stochastic depth
     use_swiglu: bool = True
-    is_causal: bool = False # True for pre-training (NEPA), False for classification
 
     # Augmented Coordinates (RoPE 2D)
     pos_embed_shift: Optional[float] = None
@@ -59,6 +58,10 @@ class BaseConfig:
 
     # Masking
     prediction_ratio: float = 0.6
+
+    # Predictor
+    num_predictor_layers: int = 4
+    use_abs_pos: bool = False
 
     def __post_init__(self):
         if self.hidden_size % self.num_attention_heads != 0:

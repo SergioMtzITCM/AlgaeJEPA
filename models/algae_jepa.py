@@ -1,5 +1,8 @@
+import warnings
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from utils.masking_generator import MultiBlockMasking
 
@@ -20,7 +23,7 @@ class AlgaeJepa(nn.Module):
                  lambda_sigreg: float = 0.1,
                  sigreg_num_slices: int = 1024,
                  sigreg_knots: int = 17,
-                 sigreg_t_max: float = 3.0,
+                 sigreg_t_max: float = 5.0,
                  seed: Optional[int] = None) -> None:
         super().__init__()
 
@@ -41,6 +44,15 @@ class AlgaeJepa(nn.Module):
         self.embedding_prediction_criterion = EmbeddingLoss(loss_type)
         self.lambda_sigreg = lambda_sigreg
 
+    @staticmethod
+    def _gather_tokens(embeddings: torch.Tensor,
+                       idx: torch.Tensor) -> torch.Tensor:
+        """Gather a token subset: embeddings [B, N, D], idx [B, N_subset] -> [B, N_subset, D]"""
+ 
+        D = embeddings.shape[-1]
+        idx_expanded = idx.unsqueeze(-1).expand(-1, -1, D)
+ 
+        return torch.gather(embeddings, 1, idx_expanded)
 
     def extract_embeddings_by_indices(self,
                                       embeddings: torch.Tensor,
@@ -92,11 +104,7 @@ class AlgaeJepa(nn.Module):
         all_embeddings = self.encoder.forward_embeddings(all_patch_embeddings, full_cos_sin)
 
         # Extract only the target embeddings
-        _, target_embeddings = self.extract_embeddings_by_indices(
-            embeddings = all_embeddings,
-            context_idx = target_idx,
-            target_idx = target_idx
-        )
+        target_embeddings = self._gather_tokens(all_embeddings, target_idx)
 
         return target_embeddings
 
@@ -133,11 +141,7 @@ class AlgaeJepa(nn.Module):
         target_cos_sin = self.encoder.rope(pixel_values, target_idx)
 
         # Context flow (only visible patches)
-        context_embedings_raw, _ = self.extract_embeddings_by_indices(
-            embeddings = all_patch_embeddings,
-            context_idx = context_idx,
-            target_idx = target_idx
-        )
+        context_embeddings_raw = self._gather_tokens(all_patch_embeddings, context_idx)
         context_embeddings = self.encoder.forward_embeddings(context_embedings_raw, context_cos_sin)
 
         # Target flow (forward target patches for global context and then extract them)
@@ -167,8 +171,6 @@ class AlgaeJepa(nn.Module):
             context_idx = context_idx,
             target_idx = target_idx
         )
-
-        Dim = context_embeddings.shape[-1]
 
         # Predict the Target Embeddings Using the Predictor
         predicted_target_embeddings = self.predictor(
@@ -211,6 +213,11 @@ class AlgaeJepa(nn.Module):
             sigreg               :  reference under N(0, I) i.i.d. ≈ 1.05.
             target_abs_max, act_in_max, act_out_max: Maximum magnitudes. fp16 overflows at 65,504.
         """
+
+         device = x_input.device
+        cpu_rng_state = torch.get_rng_state()
+        cuda_rng_state = torch.cuda.get_rng_state(device) if device.type == "cuda" else None
+        mask_rng_state = self.mask_generator.get_rng_state()
  
         was_training = self.training
         self.eval()

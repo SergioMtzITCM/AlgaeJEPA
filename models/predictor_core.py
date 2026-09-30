@@ -3,10 +3,39 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from configs.config import BaseConfig
-from typing import Tuple
+from typing import Tuple, Optional
 
 from models.vit_core import SelfAttention, LayerScale, SwiGLU, DropPath
-from models.rope import apply_rotary_pos_embed
+from models.rope import apply_rotary_pos_embed_single
+
+
+def build_2d_sincos_pos_embed(embed_dim: int,
+                              grid_size: int) -> torch.Tensor:
+    """
+    Fixed (non-learnable) 2D sin-cos absolute position embedding, I-JEPA style.
+ 
+    Returns: [grid_size * grid_size, embed_dim] in float32. Row-major order, i.e. the same order as
+    the patch indices used everywhere else (index = row * grid_size + col). The first half of the
+    channels encodes the row and the second half encodes the column.
+    """
+ 
+    if embed_dim % 4 != 0:
+        raise ValueError(f"'embed_dim' must be divisible by 4 for a 2D sin-cos embedding (embed_dim = {embed_dim})")
+ 
+    def _embed_1d(dim: int, pos: torch.Tensor) -> torch.Tensor:
+        # pos: [N] -> [N, dim]  (sin | cos)
+        omega = torch.arange(dim // 2, dtype = torch.float64) / (dim / 2.0)
+        omega = 1.0 / (10000.0 ** omega)
+        angles = pos.reshape(-1, 1) * omega.reshape(1, -1)
+        return torch.cat([torch.sin(angles), torch.cos(angles)], dim = 1)
+ 
+    coords = torch.arange(grid_size, dtype = torch.float64)
+    rows = coords.reshape(-1, 1).expand(grid_size, grid_size).reshape(-1)
+    cols = coords.reshape(1, -1).expand(grid_size, grid_size).reshape(-1)
+ 
+    embed = torch.cat([_embed_1d(embed_dim // 2, rows), _embed_1d(embed_dim // 2, cols)], dim = 1)
+ 
+    return embed.float()
 
 class CrossAttention(nn.Module):
     def __init__(self,
@@ -62,8 +91,8 @@ class CrossAttention(nn.Module):
         cos_q, sin_q = rope_embed_q
         cos_k, sin_k = rope_embed_k
 
-        q, _ = apply_rotary_pos_embed(q, q, cos_q, sin_q) # Only rotate q
-        k, _ = apply_rotary_pos_embed(k, k, cos_k, sin_k) # Only rotate k
+        q = apply_rotary_pos_embed_single(q, cos_q, sin_q) # Only rotate q (target RoPE)
+        k = apply_rotary_pos_embed_single(k, cos_k, sin_k) # Only rotate k (context RoPE)
 
         # Attention: (Q @ K.T) * scale
         x = F.scaled_dot_product_attention(
@@ -145,22 +174,29 @@ class PredictorModel(nn.Module):
                  config: BaseConfig) -> None:
         super().__init__()
 
+        if num_layers < 1:
+            raise ValueError(f"'num_layers' must be >= 1 (received {config.num_predictor_layers})")
+
         self.config = config
-        self.num_hidden_layers = 3
 
         # Target Patches Mask Token
         self.mask_token = nn.Parameter(torch.zeros(1, 1, config.hidden_size))
 
         # Predictor Blocks
         # Stochastic Depth Decay Rule
-        dpr = [x.item() for x in torch.linspace(0, config.drop_path_prob, self.num_hidden_layers)]
+        dpr = [x.item() for x in torch.linspace(0, config.drop_path_prob, config.num_predictor_layers)]
 
         self.layers = nn.ModuleList([
             PredictorLayer(config, drop_path_radio = dpr[i])
-            for i in range(self.num_hidden_layers)
+            for i in range(config.num_predictor_layers)
         ])
 
         self.norm = nn.LayerNorm(config.hidden_size, eps = config.layer_norm_eps)
+
+        if config.use_abs_pos:
+            grid_size = config.image_size // config.patch_size
+            abs_pos_embed = build_2d_sincos_pos_embed(config.hidden_size, grid_size) # [N_patches, D]
+            self.register_buffer("abs_pos_embed", abs_pos_embed, persistent = False)
 
         self._init_weights()
 
@@ -182,12 +218,33 @@ class PredictorModel(nn.Module):
     def forward(self,
                 context_embeddings: torch.Tensor,
                 context_rope_embed: Tuple[torch.Tensor, torch.Tensor],
-                target_rope_embed: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+                target_rope_embed: Tuple[torch.Tensor, torch.Tensor],
+                target_idx: Optional[torch.Tensor] = None) -> torch.Tensor:
+
+        # target_idx: Indices of the target patches [B, N_tgt]. Only required when use_abs_pos = True.
 
         B, N_tgt = target_rope_embed[0].shape[0], target_rope_embed[0].shape[1]
 
+        if context_embeddings.shape[1] != context_rope_embed[0].shape[-2]:
+            raise ValueError(
+                f"Context tokens ({context_embeddings.shape[1]}) do not match the context RoPE positions "
+                f"({context_rope_embed[0].shape[-2]})."
+            )
+
         # Expand the Mask Token
         mask_tokens = self.mask_token.expand(B, N_tgt, -1)
+
+        # Absolute position of each target (optional)
+        if self.use_abs_pos:
+            if target_idx is None:
+                raise ValueError("'target_idx' is required when the predictor is built with use_abs_pos = True")
+            if tuple(target_idx.shape) != (B, N_tgt):
+                raise ValueError(
+                    f"'target_idx' must have shape {(B, N_tgt)} (received {tuple(target_idx.shape)})"
+                )
+            # abs_pos_embed: [N_patches, D] -> gather -> [B, N_tgt, D]
+            target_pos = self.abs_pos_embed[target_idx]
+            mask_tokens = mask_tokens + target_pos.to(mask_tokens.dtype)
 
         # Forward Pass Through Predictor Layers
         x = mask_tokens

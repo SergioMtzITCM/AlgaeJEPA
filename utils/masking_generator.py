@@ -44,6 +44,14 @@ class MultiBlockMasking(object):
         min_block_area = max(1, int(self.num_patches * self.min_block_scale))
         self._max_rounds = max(50, 10 * math.ceil(num_target_patches / min_block_area))
 
+    def get_rng_state(self) -> dict:
+        """Snapshot of the numpy RNG (lets callers, e.g. diagnostics, leave the mask stream untouched)."""
+        return copy.deepcopy(self._rng.bit_generator.state)
+ 
+    def set_rng_state(self, state: dict) -> None:
+        """Restore a snapshot taken with 'get_rng_state'."""
+        self._rng.bit_generator.state = copy.deepcopy(state)
+
     def _sample_block_dims_batched(self, n: int) -> Tuple[np.ndarray, np.ndarray]:
         """
         Samples [W, W] for 'n' independent blocks.
