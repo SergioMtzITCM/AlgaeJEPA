@@ -275,9 +275,15 @@ class ViTModel(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def get_output_size(self) -> Tuple:
+    def get_grid_size(self) -> Tuple[int, int]:
+        """Patch grid (rows, cols) of the encoder output. This ViT is square (single 'image_size')."""
         n_patch = self.config.image_size // self.config.patch_size
-        return (n_patch ** 2, self.config.hidden_size)
+        return (n_patch, n_patch)
+
+    def get_output_size(self) -> Tuple[int, int]:
+        """(number of output tokens, hidden size). There is no CLS token: tokens = grid_h * grid_w."""
+        grid_h, grid_w = self.get_grid_size()
+        return (grid_h * grid_w, self.config.hidden_size)
 
     def forward(self,
                 pixel_values: torch.Tensor,

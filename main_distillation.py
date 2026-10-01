@@ -85,25 +85,30 @@ def main():
     student_model = torch.compile(student_model)
 
 
+    EPOCHS = 30
+    BASE_LR = 7.5e-4 # ViT: 7.5e-4, CNN: 1e-3, MicroViT: 7.5e-4
+    BETA_1 = 0.9 # ViT: 0.9, CNN: 0.9, MicroViT: 0.9
+    BETA_2 = 0.95 # ViT: 0.95, CNN: 0.999, MicroViT: 0.999
+    WEIGHT_DECAY = 0.05 # ViT 0.05, CNN: 1e-4, MicroViT: 0.01
+    MIN_LR = 1e-5
+    WARMUP_EPOCHS = 7 # ViT: 5-7, CNN: 2-3, MicroViT: 5
+    START_FACTOR = 0.1 # ViT: 0.1, CNN: 0.2, MicroViT: 0.15
+
+    BATCH_SIZE = 192
+    NUM_WORKERS = 8
+    PREFETCH_FACTOR = 3
+
+
     # Get Distillation Dataloaders
     train_dataloader, test_dataloader = get_distillation_dataloaders(
         h5_path_pretrain = "./Pretrain_Data/Pretrain_data.h5",
         h5_path_test = "./Out_Distribution_Dataset/ODD.h5",
         test_csv = "./Out_Distribution_Dataset/ODD_labels.csv",
-        batch_size = 192,
+        batch_size = BATCH_SIZE,
         shuffle_train = True,
-        num_workers = 8,
-        prefetch_factor = 3
+        num_workers = NUM_WORKERS,
+        prefetch_factor = PREFETCH_FACTOR
     )
-
-    EPOCHS = 20
-    BASE_LR = 2.5e-4
-    BETA_1 = 0.9
-    BETA_2 = 0.95
-    WEIGHT_DECAY = 0.02
-    MIN_LR = 1e-5
-    WARMUP_EPOCHS = 5
-    START_FACTOR = 0.15
 
     # Optimizer: student AND projector parameters in the same optimizer, from the start
     optimizer = AdamW(

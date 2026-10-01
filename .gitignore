@@ -17,3 +17,5 @@ tf_env/
 .vscode
 diagnostico_rendimiento.py
 verify_*.py
+*.tar.gz
+AlgaeJEPA_Pretrain_lambda01/
