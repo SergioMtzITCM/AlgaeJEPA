@@ -12,7 +12,7 @@ import matplotlib
 import seaborn as sns
 matplotlib.use("Agg")
 
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
 
 from sklearn.metrics import accuracy_score, f1_score
 
@@ -492,12 +492,62 @@ class AlgaeJEPA_Trainer:
         print(f"Animation saved in: {gif_path}")
 
 
+# ------------------------------------------------------
+# KNOWLEDGE DISTILLATION
+# ------------------------------------------------------
+
+def resolve_kd_feature_size(size: tuple) -> Tuple[int, int]:
+    """
+    Reads the 'get_output_size()' contract of a model and returns (channels, spatial_side):
+        token models (ViT, ...): (N_tokens, hidden_dim) -> (hidden_dim, sqrt(N_tokens))
+        CNN / conv models      : (channels, H, W)        -> (channels, H)
+    """
+
+    if len(size) == 2:
+        n_tokens, hidden_dim = size
+        side = math.isqrt(n_tokens)
+        if side * side != n_tokens:
+            raise ValueError(f"get_output_size() = {tuple(size)}: the number of tokens ({n_tokens}) is not a perfect square.")
+        return hidden_dim, side
+
+    if len(size) == 3:
+        channels, height, width = size
+        if height != width:
+            raise ValueError(f"get_output_size() = {tuple(size)}: only square feature maps are supported.")
+        return channels, height
+
+    raise ValueError(
+        f"get_output_size() = {tuple(size)}: expected (N_tokens, hidden_dim) for token models "
+        f"or (channels, H, W) for convolutional models."
+    )
+
+def build_kd_projector(teacher: ViTModel,
+                       student: Union[ViTModel, MicroViTModel, MobileNetModel, ResNetModel]) -> nn.Module:
+    """
+    Channel projector Student -> Teacher: a 1x1 Conv2d when the channel dims differ, otherwise Identity.
+
+    IMPORTANT: build it (and move it to the device) BEFORE creating the optimizer and the LR scheduler,
+    and put its parameters in the optimizer, e.g.:
+
+        projector = build_kd_projector(teacher, student).to(device)
+        optimizer = AdamW(list(student.parameters()) + list(projector.parameters()), ...)
+        scheduler = ...                                   # created AFTER the optimizer has all its params
+        trainer = KD_Trainer(..., projector = projector)
+    """
+
+    t_dim, _ = resolve_kd_feature_size(teacher.get_output_size())
+    s_dim, _ = resolve_kd_feature_size(student.get_output_size())
+
+    if s_dim != t_dim:
+        return nn.Conv2d(s_dim, t_dim, kernel_size = 1)
+
+    return nn.Identity()
 
 
 class KD_Trainer:
     def __init__(self,
                  teacher: ViTModel,
-                 student: nn.Module,
+                 student: Union[ViTModel, MicroViTModel, MobileNetModel, ResNetModel],
                  train_dataloader: DataLoader,
                  test_dataloader: DataLoader,
                  optimizer: optim.Optimizer,
@@ -505,7 +555,14 @@ class KD_Trainer:
                  device: torch.device,
                  epochs: int,
                  loss_type: str = "mse",
-                 save_dir: str = "kd_outputs") -> None:
+                 save_dir: str = "kd_outputs",
+                 projector: Optional[nn.Module] = None) -> None:
+        """
+        projector: Student -> Teacher channel projector, built with 'build_kd_projector' BEFORE the optimizer
+            and the scheduler, and whose parameters are already in 'optimizer'. If None, it is built here, which
+            is only valid when it has no parameters (Identity): a parameterized projector created here could not
+            be part of the optimizer / scheduler that were built earlier, so a ValueError is raised.
+        """
 
         self.device = device
 
@@ -521,22 +578,18 @@ class KD_Trainer:
         self.t_size = self.teacher.get_output_size()
         self.s_size = self.student.get_output_size()
 
-        # Extract Channel Dims and Spatial Resolutions
-        self.t_dim = self.t_size[-1] if len(self.t_size) == 2 else self.t_size[0]
-        self.s_dim = self.s_size[-1] if len(self.s_size) == 2 else self.s_size[0]
+        # Extract Channel Dims and Spatial Resolutions (N_patch or H = W)
+        self.t_dim, self.t_spatial = resolve_kd_feature_size(self.t_size)
+        self.s_dim, self.s_spatial = resolve_kd_feature_size(self.s_size)
 
-        # Compute Spatial Resolutions N_patch or (H, W)
-        self.t_spatial = math.isqrt(self.t_size[0]) if len(self.t_size) == 2 else self.t_size[1]
-        self.s_spatial = math.isqrt(self.s_size[0]) if len(self.s_size) == 2 else self.s_size[1]
+        # Channels Projector (Student -> Teacher). It is NOT added to the optimizer here: the LR scheduler
+        # snapshots the param groups when it is created ('initial_lr', 'base_lrs'), so a group added afterwards
+        # is not managed consistently by it. The projector must already be in the optimizer (checked below).
+        if projector is None:
+            projector = build_kd_projector(self.teacher, self.student)
+        self.projector = projector.to(self.device)
 
-        # Channels Projector Configuration (Master -> Student)
-        if self.s_dim != self.t_dim:
-            self.projector = nn.Conv2d(self.s_dim, self.t_dim, kernel_size = 1).to(self.device)
-            optimizer.add_param_group({"params": self.projector.parameters()})
-        else:
-            self.projector = nn.Identity().to(self.device)
-
-        # Spatial Adapter Configuration (Master -> Student)
+        # Spatial Adapter Configuration (Teacher -> Student)
         if self.t_spatial != self.s_spatial:
             self.spatial_pooler = nn.AdaptiveAvgPool2d((self.s_spatial, self.s_spatial)).to(self.device)
         else:
@@ -544,6 +597,9 @@ class KD_Trainer:
 
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
+
+        # The optimizer must already hold every trainable parameter of the student and of the projector
+        self._check_optimizer_coverage()
 
         # AMP
         self.scaler = torch.amp.GradScaler(device = device)
@@ -556,7 +612,9 @@ class KD_Trainer:
         self.best_loss = float("inf")
         self.animation_duration = 0.3
 
-        self.loss_criterion = IJEPA_Loss(loss_type)
+        # KD tensors are standardized to channel-first [B, C, H, W] (see _standardize_tensor), so the
+        # feature vector lives in dim = 1 (NOT in dim = -1, which would be the width W).
+        self.loss_criterion = EmbeddingLoss(loss_type, feature_dim = 1)
 
         # Metric tracking
         self.history = {"kd_loss": []}
@@ -568,6 +626,44 @@ class KD_Trainer:
 
         for d in [self.checkpoint_dir, self.figures_dir, self.losses_dir]:
             os.makedirs(d, exist_ok = True)
+
+    def _check_optimizer_coverage(self) -> None:
+        """
+        Verifies that the optimizer (and therefore the LR scheduler built on it) contains every trainable
+        parameter of the student and of the projector, and prints a summary.
+        """
+ 
+        in_optimizer = {id(p) for group in self.optimizer.param_groups for p in group["params"]}
+ 
+        missing_projector = [
+            name for name, p in self.projector.named_parameters()
+            if p.requires_grad and id(p) not in in_optimizer
+        ]
+        if missing_projector:
+            raise ValueError(
+                f"The projector has trainable parameters that are not in the optimizer ({missing_projector}). "
+                f"Build it with 'build_kd_projector(teacher, student).to(device)' BEFORE creating the optimizer, "
+                f"put 'list(student.parameters()) + list(projector.parameters())' in the optimizer, create the "
+                f"LR scheduler afterwards and pass the projector with 'KD_Trainer(..., projector = projector)'. "
+                f"(Adding the group later with optimizer.add_param_group leaves it out of the scheduler's "
+                f"'base_lrs' / 'initial_lr'.)"
+            )
+ 
+        student_params = [p for p in self.student.parameters() if p.requires_grad]
+        n_missing_student = sum(1 for p in student_params if id(p) not in in_optimizer)
+        if n_missing_student > 0:
+            warnings.warn(
+                f"{n_missing_student} of {len(student_params)} trainable student tensors are NOT in the optimizer "
+                f"(they will not be trained). Check which model's parameters were given to the optimizer."
+            )
+ 
+        n_student = sum(p.numel() for p in student_params if id(p) in in_optimizer)
+        n_projector = sum(p.numel() for p in self.projector.parameters() if id(p) in in_optimizer)
+        print(
+            f"[KD] Optimizer covers {n_student:,} student parameters and {n_projector:,} projector parameters "
+            f"in {len(self.optimizer.param_groups)} param group(s); lr per group = "
+            f"{[float(group['lr']) for group in self.optimizer.param_groups]}"
+        )
 
     def _standardize_tensor(self,
                             x: torch.Tensor,
@@ -661,9 +757,9 @@ class KD_Trainer:
         self._create_animation()
         print("Knowledge Distillation Completed Successfully")
 
-    def _unwrap_model(self) -> AlgaeJepa:
-        """Returns real module under torch.compile."""
-        return self.model._orig_mod if hasattr(self.model, "_orig_mod") else self.model
+    def _unwrap_model(self) -> Union[ViTModel, MicroViTModel, MobileNetModel, ResNetModel]:
+        """Returns real student module under torch.compile."""
+        return self.student._orig_mod if hasattr(self.student, "_orig_mod") else self.student
 
     @torch.no_grad()
     def _visualize_latent_space(self, epoch: int) -> None:

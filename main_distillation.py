@@ -1,12 +1,13 @@
-from trainer import KD_Trainer
+from trainer import KD_Trainer, build_kd_projector
 from utils.data import get_distillation_dataloaders
 from utils.loader import load_pretrain_encoder
 
-from configs.config import BaseConfig, MicroViTConfig, MobileNetConfig
+from configs.config import BaseConfig, MicroViTConfig, MobileNetConfig, ResNetConfig
 
 from models.vit_core import ViTModel
 from models.microvit_core import MicroViTModel
 from models.mobilenet_core import MobileNetModel
+from models.resnet_core import ResNetModel
 
 
 import torch
@@ -27,7 +28,7 @@ def main():
         layerscale_value = 1e-5
     )
 
-    # ViT
+    # ViT-Tiny
     vit_student_config = BaseConfig(
         hidden_size = 192,
         num_hidden_layers = 12,
@@ -47,32 +48,48 @@ def main():
         num_channels = 3
     )
 
+    # ResNet
+    resnet_student_config = ResNetConfig(
+        image_size = 224,
+        num_channels = 3
+    )
+
+    teacher_model = load_pretrain_encoder(
+            checkpoint_path = "AlgaeJEPA_Pretrain_lambda01/checkpoints/best_model.pth",
+            device = device
+    )
+
     # Make Student Model
 
     # MicroViT
-    #microvit_student_model = MicroViTModel(microvit_student_config)
-    #microvit_student_model = torch.compile(microvit_student_model)
+    #student_model = MicroViTModel(microvit_student_config)
 
-    # ViT
-    #vit_student_model = ViTModel(vit_student_config)
-    #vit_student_model = torch.compile(vit_student_model)
-
+    # ViT-Tiny
+    student_model = ViTModel(vit_student_config)
+    
     # MobileNet
-    mobilenet_student_model = MobileNetModel(mobilenet_student_config)
-    mobilenet_student_model = torch.compile(mobilenet_student_model)
+    #student_model = MobileNetModel(mobilenet_student_config)
+    
+    # ResNet
+    #student_model = ResNetModel(resnet_student_config)
 
-    # Load Teacher Encoder
-    teacher_model = load_pretrain_encoder(
-        checkpoint_path = "./Main_Pretrain_lambda01/checkpoints/best_model.pth",
-        device = device
-    )
+    # Move to Device
+    student_model = student_model.to(device)
+
+    # Channel Projector (Student -> Teacher): 1x1 Conv2d, or Identity if both have the same channels.
+    # It is built here, before the optimizer and the scheduler, so that its parameters are optimized
+    # and managed by the LR scheduler like the rest of the parameters.
+    projector = build_kd_projector(teacher_model, student_model).to(device)
+
+    # Compile the Model
+    student_model = torch.compile(student_model)
+
 
     # Get Distillation Dataloaders
     train_dataloader, test_dataloader = get_distillation_dataloaders(
-        h5_path_pretrain = "./Preprocessed_data/Preprocessed_data.h5",
-        h5_path_test = "./Test_data_preprocessed/Test_data_preprocessed.h5",
-        test_csv = "./Test_data_preprocessed/classes.csv",
-        target_size = 224,
+        h5_path_pretrain = "./Pretrain_Data/Pretrain_data.h5",
+        h5_path_test = "./Out_Distribution_Dataset/ODD.h5",
+        test_csv = "./Out_Distribution_Dataset/ODD_labels.csv",
         batch_size = 192,
         shuffle_train = True,
         num_workers = 8,
@@ -88,17 +105,23 @@ def main():
     WARMUP_EPOCHS = 5
     START_FACTOR = 0.15
 
-    # Optimizer and LRScheduler
-    optimizer = AdamW(microvit_student_model.parameters(), lr = BASE_LR, betas = (BETA_1,
-                                                                        BETA_2), weight_decay = WEIGHT_DECAY)
+    # Optimizer: student AND projector parameters in the same optimizer, from the start
+    optimizer = AdamW(
+        list(student_model.parameters()) + list(projector.parameters()),
+        lr = BASE_LR,
+        betas = (BETA_1, BETA_2),
+        weight_decay = WEIGHT_DECAY
+    )
+
+    # LRScheduler: created AFTER the optimizer already contains every parameter
     warmup = LinearLR(optimizer, start_factor = START_FACTOR, total_iters = WARMUP_EPOCHS)
     cosine = CosineAnnealingLR(optimizer, T_max = (EPOCHS - WARMUP_EPOCHS), eta_min = MIN_LR)
-    scheduler = SequentialLR(optimizer, schedulers = [warmup, cosine], milestones = [5])
+    scheduler = SequentialLR(optimizer, schedulers = [warmup, cosine], milestones = [WARMUP_EPOCHS])
 
     # Trainer
     trainer = KD_Trainer(
         teacher = teacher_model,
-        student = mobilenet_student_model,
+        student = student_model,
         train_dataloader = train_dataloader,
         test_dataloader = test_dataloader,
         optimizer = optimizer,
@@ -106,7 +129,8 @@ def main():
         device = device,
         epochs = EPOCHS,
         loss_type = "mse",
-        save_dir = "MobileNetV2_Student"
+        save_dir = "ViT-Tiny_Student",
+        projector = projector
     )
 
     trainer.train()

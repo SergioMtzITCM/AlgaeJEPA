@@ -16,3 +16,4 @@ tf_env/
 *.ipynb
 .vscode
 diagnostico_rendimiento.py
+verify_*.py

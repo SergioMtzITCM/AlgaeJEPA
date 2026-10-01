@@ -120,9 +120,11 @@ class _MyDataset(Dataset):
             return image_tensor
 
         elif self.mode == "distillation":
-            if self.resize is None:
-                raise ValueError("En 'distillation mode' se requiere especificar 'target_size'.")
-            image_resized = self.resize(image_tensor)
+            if self.resize is not None:
+                #raise ValueError("En 'distillation mode' se requiere especificar 'target_size'.")
+                image_resized = self.resize(image_tensor)
+            else:
+                image_resized = image_tensor
             return image_tensor, image_resized
 
         elif self.mode == "labeled":
@@ -165,7 +167,7 @@ def get_pretrain_dataloaders(h5_path_pretrain: str,
     return pretrain_loader, test_loader
 
 def get_distillation_dataloaders(h5_path_pretrain: str,
-                                 target_size: Union[int, Tuple[int, int]],
+                                 target_size: Optional[Union[int, Tuple[int, int]]] = None,
                                  h5_path_test: Optional[str] = None,
                                  test_csv: Optional[str] = None,
                                  batch_size: int = 32,
