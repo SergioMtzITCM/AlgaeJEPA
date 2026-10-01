@@ -85,7 +85,7 @@ def main():
     student_model = torch.compile(student_model)
 
 
-    EPOCHS = 30
+    EPOCHS = 20
     BASE_LR = 7.5e-4 # ViT: 7.5e-4, CNN: 1e-3, MicroViT: 7.5e-4
     BETA_1 = 0.9 # ViT: 0.9, CNN: 0.9, MicroViT: 0.9
     BETA_2 = 0.95 # ViT: 0.95, CNN: 0.999, MicroViT: 0.999
