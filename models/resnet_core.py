@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torchvision import models
-from configs.config import ResNetConfig  # Cambiamos a una config apropiada
+from configs.config import ResNetConfig
 
 class ResNetModel(nn.Module):
     def __init__(self, config: ResNetConfig) -> None:
@@ -22,10 +22,6 @@ class ResNetModel(nn.Module):
 
         # Compute the number of output channels from the backbone
         self.num_features = self.get_output_size()[0]
-
-        # Pooling & Classifier Head
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.classifier = nn.Linear(self.num_features, config.num_classes)
 
         self._output_shape = None
 
@@ -71,7 +67,7 @@ class ResNetModel(nn.Module):
             x = self.classifier(x) # [B, num_classes]
         # ------------------------
 
-        return logits
+        return x
 
     def get_output_size(self) -> tuple[int, int, int]:
         """

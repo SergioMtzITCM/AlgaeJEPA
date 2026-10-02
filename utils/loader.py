@@ -62,10 +62,12 @@ def load_student_model(
         student = MicroViTModel(config)
     elif model_type.lower() == "mobilenet":
         student = MobileNetModel(config)
+    elif model_type.lower() == "resnet":
+        student = ResNetModel(config)
     else:
         raise ValueError(
             f"'{model_type}' is not supported."
-            f"Allowed values: 'ViT', 'MicroViT', 'MobileNet'.")
+            f"Allowed values: 'ViT', 'MicroViT', 'MobileNet', 'ResNet'.")
 
     # Load the State Dict
     msg = student.load_state_dict(clean_state_dict, strict = False)

@@ -33,11 +33,11 @@ def main():
     data_fractions = [1.0, 0.5, 0.25, 0.10, 0.05]
     seeds = [42, 183, 320, 543, 999]
     noise_percentage = 0.0
-    base_save_dir = "./MicroViT_Benchmark_Results"
+    base_save_dir = "./MicroViTS3_Distilled_Benchmark_Results"
 
     # Ruta del Checkpoint Maestro o Estudiante a evaluar
-    PRETRAINED_CHECKPOINT_PATH = ""
-    MODEL_TYPE_TO_LOAD = ""
+    PRETRAINED_CHECKPOINT_PATH = "./MicroViTS3_Student/checkpoints/best_student.pth"
+    MODEL_TYPE_TO_LOAD = "vit" # Teacher (it is a vit), vit, microvit, mobilenet or resnet
 
     # Hiperparámetros Base
     EPOCHS = 30
@@ -92,7 +92,7 @@ def main():
 
             # 2. Inicializar Modelo Maestro o Destilado
             print(f"Cargando Pesos Pre-Entrenados desde {PRETRAINED_CHECKPOINT_PATH}...")
-            if MODEL_TYPE_TO_LOAD == "":
+            if MODEL_TYPE_TO_LOAD == "Teacher":
                 model = load_pretrain_encoder(
                         checkpoint_path = PRETRAINED_CHECKPOINT_PATH,
                         device = device,
@@ -112,7 +112,7 @@ def main():
                     param.requires_grad = False
                 else:
                     param.requires_grad = True
-                    print(f"  -> Capa Habilitada para Fine-Tuning: {name}")
+                    print(f"  -> Layer Enabled for Fine-Tuning: {name}")
 
             model = torch.compile(model)
 
@@ -121,7 +121,7 @@ def main():
                                                                         BETA_2), weight_decay = WEIGHT_DECAY)
             warmup = LinearLR(optimizer, start_factor = START_FACTOR, total_iters = WARMUP_EPOCHS)
             cosine = CosineAnnealingLR(optimizer, T_max = (EPOCHS - WARMUP_EPOCHS), eta_min = MIN_LR)
-            scheduler = SequentialLR(optimizer, schedulers = [warmup, cosine], milestones = [5])
+            scheduler = SequentialLR(optimizer, schedulers = [warmup, cosine], milestones = [WARMUP_EPOCHS])
 
             # 4. Configurar Directorios de Guardado Dinámicos
             run_dir = os.path.join(base_save_dir, f"Frac_{fraction}", f"Seed_{seed}")
