@@ -30,6 +30,10 @@ def load_pretrain_encoder(checkpoint_path: str, device: torch.device, num_classe
 
     # Load the State Dict
     msg = encoder.load_state_dict(encoder_state_dict, strict = False)
+
+    bad_missing = [k for k in msg.missing_keys if not k.startswith("classifier.")]
+    assert not bad_missing and not msg.unexpected_keys, f"Carga incompleta: {msg}"
+
     print(f"Encoder Load State: {msg}")
 
     return encoder.to(device)
@@ -71,6 +75,10 @@ def load_student_model(
 
     # Load the State Dict
     msg = student.load_state_dict(clean_state_dict, strict = False)
+    
+    bad_missing = [k for k in msg.missing_keys if not k.startswith("classifier.")]
+    assert not bad_missing and not msg.unexpected_keys, f"Carga incompleta: {msg}"
+
     print(f"Student Load State: {msg}")
 
     return student.to(device)

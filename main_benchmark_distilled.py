@@ -15,6 +15,7 @@ from configs.config import BaseConfig, MicroViTConfig, MobileNetConfig, ResNetCo
 from utils.loader import load_pretrain_encoder, load_student_model
 
 import torch
+import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
@@ -25,7 +26,7 @@ def set_seed(seed: int) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-def freeze_backbone(model: nn.Module, head_name: str = HEAD_NAME) -> None:
+def freeze_backbone(model: nn.Module, head_name: str = "classifier") -> None:
     for name, p in model.named_parameters():
         p.requires_grad = name.startswith(f"{head_name}.")
     for name, p in model.named_parameters():
