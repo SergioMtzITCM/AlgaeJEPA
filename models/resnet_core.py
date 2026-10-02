@@ -20,9 +20,6 @@ class ResNetModel(nn.Module):
         if config.num_channels != 3:
             self._adapt_input_channels()
 
-        # Compute the number of output channels from the backbone
-        self.num_features = self.get_output_size()[0]
-
         self._output_shape = None
 
         # ---- Classifier ----
