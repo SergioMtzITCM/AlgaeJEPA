@@ -947,7 +947,19 @@ class ClassificationTrainer:
                  lr_scheduler: LRScheduler,
                  device: torch.device,
                  epochs: int,
-                 save_dir: str = "outputs") -> None:
+                 save_dir: str = "outputs",
+                 freeze_backbone: bool = False,
+                 head_name: str = "classifier") -> None:
+
+        """
+        Args:
+            freeze_backbone: Linear Probing mode. If True, every child module of the model except
+                'head_name' is forced into eval() at the start of EVERY epoch (BatchNorm running stats,
+                Dropout and DropPath stay frozen). The caller must already have set requires_grad = False on
+                the backbone parameters BEFORE building the optimizer. If False (default) the behaviour is
+                the original one (full model.train()), so From-Scratch runs are unchanged.
+            head_name: Name of the top-level attribute that holds the trainable classification head.
+        """
 
         self.model = model.to(device)
         self.train_loader = train_dataloader
@@ -956,6 +968,11 @@ class ClassificationTrainer:
         self.lr_scheduler = lr_scheduler
         self.device = device
         self.epochs = epochs
+
+        self.freeze_backbone = freeze_backbone
+        self.head_name = head_name
+        if self.freeze_backbone:
+            self._check_frozen_setup()
 
         self.criterion = nn.CrossEntropyLoss()
 
@@ -977,12 +994,63 @@ class ClassificationTrainer:
 
         for d in [self.checkpoint_dir, self.figures_dir]:
             os.makedirs(d, exist_ok = True)
+    
+    def _unwrap_model(self) -> nn.Module:
+        return self.model._orig_mod if hasattr(self.model, "_orig_mod") else self.model
+
+    def _check_frozen_setup(self) -> None:
+        """Linear Probing sanity checks: only the head is trainable and it is inside the optimizer."""
+        model = self._unwrap_model()
+ 
+        if not hasattr(model, self.head_name):
+            raise ValueError(f"The model has no top-level module named '{self.head_name}'.")
+ 
+        prefix = f"{self.head_name}."
+        head = [(n, p) for n, p in model.named_parameters() if n.startswith(prefix)]
+        stray = [n for n, p in model.named_parameters() if p.requires_grad and not n.startswith(prefix)]
+        frozen_head = [n for n, p in head if not p.requires_grad]
+ 
+        if not head:
+            raise ValueError(f"No parameters found under '{self.head_name}'.")
+        if stray:
+            raise ValueError(f"Backbone parameters still trainable (set requires_grad = False before "
+                             f"building the optimizer): {stray[:5]}{' ...' if len(stray) > 5 else ''}")
+        if frozen_head:
+            raise ValueError(f"Head parameters are frozen: {frozen_head}")
+ 
+        in_optimizer = {id(p) for g in self.optimizer.param_groups for p in g["params"]}
+        missing = [n for n, p in head if id(p) not in in_optimizer]
+        if missing:
+            raise ValueError(f"Head parameters missing from the optimizer: {missing}")
+ 
+        n_head = sum(p.numel() for _, p in head)
+        n_total = sum(p.numel() for p in model.parameters())
+        print(f"Linear Probing: {n_head:,} trainable parameters of {n_total:,} (head: '{self.head_name}').")
+
+    def _set_train_mode(self) -> None:
+        """model.train() for From-Scratch; for Linear Probing the backbone is kept in eval()."""
+        self.model.train()
+ 
+        if self.freeze_backbone:
+            for name, child in self._unwrap_model().named_children():
+                if name != self.head_name:
+                    child.eval()
+
+    def _assert_backbone_eval(self) -> None:
+        leaked = [n for n, m in self._unwrap_model().named_modules()
+                  if n and n.split(".")[0] != self.head_name and m.training]
+        if leaked:
+            raise RuntimeError(f"Backbone modules still in train mode: {leaked[:5]}")
 
     def train(self) -> None:
         print(f"Iniciando Entrenamiento en {self.device} por {self.epochs} épocas...")
 
         for epoch in range(1, self.epochs + 1):
-            self.model.train()
+
+            self._set_train_mode()
+            if self.freeze_backbone and epoch == 1:
+                self._assert_backbone_eval()
+            
             epoch_loss = 0.0
             all_preds = []
             all_labels = []

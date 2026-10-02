@@ -16,7 +16,7 @@ from utils.loader import load_pretrain_encoder, load_student_model
 
 import torch
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -24,6 +24,13 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+def freeze_backbone(model: nn.Module, head_name: str = HEAD_NAME) -> None:
+    for name, p in model.named_parameters():
+        p.requires_grad = name.startswith(f"{head_name}.")
+    for name, p in model.named_parameters():
+        if p.requires_grad:
+            print(f"  -> Layer Enabled for Linear Probing: {name}")
 
 def main():
 
@@ -33,25 +40,24 @@ def main():
     data_fractions = [1.0, 0.5, 0.25, 0.10, 0.05]
     seeds = [42, 183, 320, 543, 999]
     noise_percentage = 0.0
-    base_save_dir = "./MicroViTS3_Distilled_Benchmark_Results"
+    base_save_dir = "./MicroViTS3_Distilled_Benchmark_Results/"
 
     # Ruta del Checkpoint Maestro o Estudiante a evaluar
     PRETRAINED_CHECKPOINT_PATH = "./MicroViTS3_Student/checkpoints/best_student.pth"
-    MODEL_TYPE_TO_LOAD = "vit" # Teacher (it is a vit), vit, microvit, mobilenet or resnet
+    MODEL_TYPE_TO_LOAD = "microvit" # Teacher (it is a vit), vit, microvit, mobilenet or resnet
 
     # Hiperparámetros Base
     EPOCHS = 30
-    BASE_LR = 7.5e-4 # ViT: 7.5e-4, CNN: 1e-3, MicroViT: 7.5e-4
-    BETA_1 = 0.9 # ViT: 0.9, CNN: 0.9, MicroViT: 0.9
-    BETA_2 = 0.999 # ViT: 0.95, CNN: 0.999, MicroViT: 0.999
-    WEIGHT_DECAY = 0.01 # ViT 0.05, CNN: 1e-4, MicroViT: 0.01
+    BASE_LR = 1e-3
     MIN_LR = 1e-5
-    WARMUP_EPOCHS = 5 # ViT: 5-7, CNN: 2-3, MicroViT: 5
-    START_FACTOR = 0.15 # ViT: 0.1, CNN: 0.2, MicroViT: 0.15
-
+    BETA_1 = 0.9
+    BETA_2 = 0.999
+    WEIGHT_DECAY = 0.01
+    
     BATCH_SIZE = 192
     NUM_WORKERS = 8
     PREFETCH_FACTOR = 3
+    HEAD_NAME = "classifier"
 
     results = []
 
@@ -107,21 +113,17 @@ def main():
                 )
 
             # Congelar Pesos
-            for name, param in model.named_parameters():
-                if "classifier" not in name:
-                    param.requires_grad = False
-                else:
-                    param.requires_grad = True
-                    print(f"  -> Layer Enabled for Fine-Tuning: {name}")
+            freeze_backbone(model)
 
             model = torch.compile(model)
 
             # 3. Optimizador y LRScheduler
-            optimizer = AdamW(model.parameters(), lr = BASE_LR, betas = (BETA_1,
-                                                                        BETA_2), weight_decay = WEIGHT_DECAY)
-            warmup = LinearLR(optimizer, start_factor = START_FACTOR, total_iters = WARMUP_EPOCHS)
-            cosine = CosineAnnealingLR(optimizer, T_max = (EPOCHS - WARMUP_EPOCHS), eta_min = MIN_LR)
-            scheduler = SequentialLR(optimizer, schedulers = [warmup, cosine], milestones = [WARMUP_EPOCHS])
+            optimizer = AdamW(
+                [p for p in model.parameters() if p.requires_grad],
+                lr = BASE_LR, betas = (BETA_1, BETA_2), weight_decay = WEIGHT_DECAY
+            )
+
+            scheduler = CosineAnnealingLR(optimizer, T_max = EPOCHS, eta_min = MIN_LR)
 
             # 4. Configurar Directorios de Guardado Dinámicos
             run_dir = os.path.join(base_save_dir, f"Frac_{fraction}", f"Seed_{seed}")
@@ -135,7 +137,9 @@ def main():
                     lr_scheduler = scheduler,
                     device = device,
                     epochs = EPOCHS,
-                    save_dir = run_dir
+                    save_dir = run_dir,
+                    freeze_backbone = True,
+                    head_name = HEAD_NAME
             )
             trainer.train()
 
